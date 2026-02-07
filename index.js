@@ -80,11 +80,16 @@ client.on("messageReactionAdd", async (reaction, user) => {
 
   // Message attendu :
   // Sultan | AA-123-AA | Jean
-  const parts = reaction.message.content.split("|").map(v => v.trim());
-  if (parts.length < 2) return;
+const contenu = reaction.message.content
+  .replace("!vehicule", "")
+  .trim();
 
-  const vehicule = parts[0];
-  const plaque = parts[1];
+const parts = contenu.split("|").map(v => v.trim());
+
+if (parts.length < 2) return;
+
+const vehicule = parts[0]; // ✅ propre
+const plaque = parts[1];
 
   try {
     // 1️⃣ Lire colonne D (plaques)
