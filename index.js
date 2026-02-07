@@ -238,3 +238,14 @@ cron.schedule(
 client.login(process.env.DISCORD_TOKEN);
 bilanClient.login(process.env.DISCORD_BILAN_TOKEN);
 
+// =====================================================
+// 🧪 COMMANDE TEST BILAN (manuel)
+// =====================================================
+client.on("messageCreate", async (message) => {
+  if (message.author.bot) return;
+  if (message.content !== "!testbilan") return;
+
+  await message.reply("🧪 Test bilan déclenché");
+});
+
+
