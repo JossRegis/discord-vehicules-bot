@@ -200,7 +200,7 @@ cron.schedule(
       const diff = (a, b) => a - b;
       const arrow = v => (v >= 0 ? "📈" : "📉");
 
-      const channel = await bilanClient.channels.fetch("ID_DU_SALON_ICI");
+      const channel = await bilanClient.channels.fetch("1469508002468856030");
       if (!channel) return;
 
       const message =
