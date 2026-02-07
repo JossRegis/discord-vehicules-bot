@@ -17,6 +17,7 @@ const auth = new google.auth.GoogleAuth({
 
 const sheets = google.sheets({ version: "v4", auth });
 const SHEET_ID = process.env.SHEET_ID;
+const SHEET_NAME = "Véhicules";
 
 // ===== Bot ready =====
 client.once("ready", () => {
@@ -29,39 +30,51 @@ client.on("messageCreate", async (message) => {
   if (message.channel.name !== "véhicules") return;
   if (!message.content.startsWith("!vehicule")) return;
 
-  // Exemple attendu :
   // !vehicule Sultan | AA-123-AA | ❌
   const contenu = message.content.replace("!vehicule", "").trim();
   const [vehicule, plaque, commentaireBrut] = contenu
     .split("|")
     .map(v => v?.trim());
 
-  // Sécurité format
-  if (!vehicule || !plaque) {
+  if (!plaque) {
     return message.react("❌");
   }
 
-  // ===== Gestion croix → Libre (colonne E) =====
-  let commentaire = commentaireBrut || "Libre";
-  const v = commentaire.toLowerCase();
+  const v = commentaireBrut?.toLowerCase();
+  const doitLiberer = v === "❌" || v === "x" || v === "croix";
 
-  if (v === "❌" || v === "x" || v === "croix") {
-    commentaire = "Libre";
+  if (!doitLiberer) {
+    return message.react("❌"); // ici on ne gère que la libération
   }
 
   try {
-    await sheets.spreadsheets.values.append({
+    // 1️⃣ Lire toutes les plaques (colonne D)
+    const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Véhicules!A:E",
+      range: `${SHEET_NAME}!D:D`
+    });
+
+    const rows = res.data.values || [];
+
+    // 2️⃣ Trouver la ligne correspondante
+    const index = rows.findIndex(
+      row => row[0]?.toUpperCase() === plaque.toUpperCase()
+    );
+
+    if (index === -1) {
+      console.log("Plaque non trouvée :", plaque);
+      return message.react("❌");
+    }
+
+    const ligne = index + 1; // Google Sheets commence à 1
+
+    // 3️⃣ Mettre à jour la colonne E de cette ligne
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${SHEET_NAME}!E${ligne}`,
       valueInputOption: "RAW",
       requestBody: {
-        values: [[
-          new Date().toLocaleString(), // A - Date
-          message.author.username,     // B - Utilisateur
-          vehicule,                    // C - Véhicule
-          plaque,                      // D - Plaque
-          commentaire                  // E - Prénom / Libre
-        ]]
+        values: [["Libre"]]
       }
     });
 
