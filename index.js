@@ -145,17 +145,27 @@ bilanClient.once("ready", () => {
 // =====================================================
 cron.schedule(
   "* * * * *",
-  async () => {
+  async () => {   // ⬅️ async OBLIGATOIRE
     try {
       console.log("📊 Génération du bilan financier");
 
-      // 📁 récupérer les 2 derniers fichiers Sheets
-      const files = await drive.files.list({
-        q: "mimeType='application/vnd.google-apps.spreadsheet'",
-        orderBy: "createdTime desc",
-        fields: "files(id, name)",
-        pageSize: 2
-      });
+      const channel = await bilanClient.channels.fetch("ID_DU_SALON_ICI");
+
+      if (!channel) {
+        console.log("❌ Salon bilan introuvable");
+        return;
+      }
+
+      await channel.send("🧪 Test bilan OK");
+      console.log("✅ Bilan envoyé");
+
+    } catch (err) {
+      console.error("❌ Erreur bilan :", err);
+    }
+  },
+  { timezone: "Europe/Paris" }
+);
+
 
       if (files.data.files.length < 2) return;
 
