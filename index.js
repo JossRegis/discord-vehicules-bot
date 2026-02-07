@@ -144,30 +144,23 @@ bilanClient.once("ready", () => {
 // Dimanche 23h59 – Europe/Paris
 // =====================================================
 cron.schedule(
-  "* * * * *",
-  async () => {   // ⬅️ async OBLIGATOIRE
+  "* * * * *", // MODE TEST
+  async () => {
     try {
       console.log("📊 Génération du bilan financier");
 
-      const channel = await bilanClient.channels.fetch("ID_DU_SALON_ICI");
+      // 📁 récupérer les 2 derniers fichiers Sheets
+      const files = await drive.files.list({
+        q: "mimeType='application/vnd.google-apps.spreadsheet'",
+        orderBy: "createdTime desc",
+        fields: "files(id, name)",
+        pageSize: 2
+      });
 
-      if (!channel) {
-        console.log("❌ Salon bilan introuvable");
+      if (!files.data.files || files.data.files.length < 2) {
+        console.log("❌ Pas assez de fichiers Sheets");
         return;
       }
-
-      await channel.send("🧪 Test bilan OK");
-      console.log("✅ Bilan envoyé");
-
-    } catch (err) {
-      console.error("❌ Erreur bilan :", err);
-    }
-  },
-  { timezone: "Europe/Paris" }
-);
-
-
-      if (files.data.files.length < 2) return;
 
       const current = files.data.files[0];
       const previous = files.data.files[1];
@@ -180,18 +173,18 @@ cron.schedule(
         return Number(res.data.values?.[0]?.[0] ?? 0);
       };
 
-      // CA
+      // 🟢 Chiffre d'affaires
       const caCurrent =
-        await getCell(current.id, "F23") +
-        await getCell(current.id, "F24") +
-        await getCell(current.id, "F25");
+        (await getCell(current.id, "F23")) +
+        (await getCell(current.id, "F24")) +
+        (await getCell(current.id, "F25"));
 
       const caPrevious =
-        await getCell(previous.id, "F23") +
-        await getCell(previous.id, "F24") +
-        await getCell(previous.id, "F25");
+        (await getCell(previous.id, "F23")) +
+        (await getCell(previous.id, "F24")) +
+        (await getCell(previous.id, "F25"));
 
-      // Dépenses
+      // 🔴 Dépenses
       let depCurrent = 0;
       let depPrevious = 0;
 
@@ -200,16 +193,14 @@ cron.schedule(
         depPrevious += await getCell(previous.id, `J${i}`);
       }
 
-      // Bénéfice
+      // 💰 Bénéfice net
       const benefCurrent = await getCell(current.id, "I41");
       const benefPrevious = await getCell(previous.id, "I41");
 
       const diff = (a, b) => a - b;
       const arrow = v => (v >= 0 ? "📈" : "📉");
 
-      const channel = await bilanClient.channels.fetch("1469508002468856030");
-
-
+      const channel = await bilanClient.channels.fetch("ID_DU_SALON_ICI");
       if (!channel) return;
 
       const message =
