@@ -144,7 +144,7 @@ bilanClient.once("ready", () => {
 // Dimanche 23h59 – Europe/Paris
 // =====================================================
 cron.schedule(
-  ""* * * * *"",
+  "* * * * *",
   async () => {
     try {
       console.log("📊 Génération du bilan financier");
