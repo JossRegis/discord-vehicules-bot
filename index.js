@@ -197,9 +197,8 @@ cron.schedule(
       const diff = (a, b) => a - b;
       const arrow = v => (v >= 0 ? "📈" : "📉");
 
-      const channel = bilanClient.channels.cache.find(
-      c => c.name === "bilan-semaine"
-      );
+      const channel = await bilanClient.channels.fetch("1469508002468856030");
+
 
       if (!channel) return;
 
