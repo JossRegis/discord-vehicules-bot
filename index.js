@@ -43,7 +43,7 @@ client.once("ready", () => {
 });
 
 // =====================================================
-// 📩 COMMANDE !vehicule → AJOUT dans Google Sheets
+// 📩 COMMANDE !vehicule → UPDATE Google Sheets
 // =====================================================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
@@ -57,33 +57,45 @@ client.on("messageCreate", async (message) => {
 
   if (!vehicule || !plaque) return message.react("❌");
 
-  const prenom = prenomBrut || "Libre";
+  const prenom = prenomBrut || message.author.username;
 
   try {
-    await sheets.spreadsheets.values.append({
+    // 🔎 Récupérer toutes les plaques (colonne D)
+    const res = await sheets.spreadsheets.values.get({
       spreadsheetId: VEHICULES_SHEET_ID,
-      range: `${VEHICULES_SHEET_NAME}!A:E`,
-      valueInputOption: "RAW",
-      requestBody: {
-        values: [[
-          new Date().toLocaleString(),
-          message.author.username,
-          vehicule,
-          plaque,
-          prenom
-        ]]
-      }
+      range: `${VEHICULES_SHEET_NAME}!D:D`
     });
 
+    const rows = res.data.values || [];
+    const index = rows.findIndex(
+      r => r[0]?.toUpperCase() === plaque.toUpperCase()
+    );
+
+    // ❌ Plaque introuvable
+    if (index === -1) {
+      return message.reply("❌ Plaque introuvable dans le Google Sheet");
+    }
+
+    const ligne = index + 1;
+
+    // ✏️ Mise à jour du conducteur (colonne E)
+   await sheets.spreadsheets.values.update({
+  spreadsheetId: VEHICULES_SHEET_ID,
+  range: `${VEHICULES_SHEET_NAME}!E${ligne}`,
+  valueInputOption: "RAW",
+  requestBody: { values: [["Libre"]] }
+});
+
     message.react("✅");
+
   } catch (err) {
-    console.error("Erreur Sheets (append) :", err);
+    console.error("Erreur Sheets (update véhicule) :", err);
     message.react("❌");
   }
 });
 
 // =====================================================
-// ❌ RÉACTION → LIBÉRATION DU VÉHICULE
+// ❌ RÉACTION → LIBÉRATION + NETTOYAGE MESSAGE
 // =====================================================
 client.on("messageReactionAdd", async (reaction, user) => {
   if (user.bot) return;
@@ -112,6 +124,7 @@ client.on("messageReactionAdd", async (reaction, user) => {
 
     const ligne = index + 1;
 
+    // 🟢 Mettre le véhicule en Libre
     await sheets.spreadsheets.values.update({
       spreadsheetId: VEHICULES_SHEET_ID,
       range: `${VEHICULES_SHEET_NAME}!E${ligne}`,
@@ -119,12 +132,11 @@ client.on("messageReactionAdd", async (reaction, user) => {
       requestBody: { values: [["Libre"]] }
     });
 
-    await reaction.message.channel.send(
-      `${vehicule} | ${plaque} | Libre`
-    );
+    // 🧹 SUPPRESSION DU MESSAGE
+    await reaction.message.delete();
 
   } catch (err) {
-    console.error("Erreur Sheets (update) :", err);
+    console.error("Erreur Sheets / suppression message :", err);
   }
 });
 
