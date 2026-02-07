@@ -43,7 +43,7 @@ client.once("ready", () => {
 });
 
 // =====================================================
-// 📩 COMMANDE !vehicule → UPDATE Google Sheets
+// 📩 COMMANDE !vehicule → UPDATE Google Sheets (ANTI DOUBLE)
 // =====================================================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
@@ -60,13 +60,14 @@ client.on("messageCreate", async (message) => {
   const prenom = prenomBrut || message.author.username;
 
   try {
-    // 🔎 Récupérer toutes les plaques (colonne D)
+    // 📥 Récupérer plaques + état (D + E)
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: VEHICULES_SHEET_ID,
-      range: `${VEHICULES_SHEET_NAME}!D:D`
+      range: `${VEHICULES_SHEET_NAME}!D:E`
     });
 
     const rows = res.data.values || [];
+
     const index = rows.findIndex(
       r => r[0]?.toUpperCase() === plaque.toUpperCase()
     );
@@ -77,19 +78,27 @@ client.on("messageCreate", async (message) => {
     }
 
     const ligne = index + 1;
+    const conducteurActuel = rows[index][1] || "Libre";
 
-    // ✏️ Mise à jour du conducteur (colonne E)
-   await sheets.spreadsheets.values.update({
-  spreadsheetId: VEHICULES_SHEET_ID,
-  range: `${VEHICULES_SHEET_NAME}!E${ligne}`,
-  valueInputOption: "RAW",
-  requestBody: { values: [["Libre"]] }
-});
+    // 🚫 ANTI DOUBLE ATTRIBUTION
+    if (conducteurActuel.toLowerCase() !== "libre") {
+      return message.reply(
+        `🚫 Véhicule déjà attribué à **${conducteurActuel}**`
+      );
+    }
+
+    // ✅ Attribution du véhicule
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: VEHICULES_SHEET_ID,
+      range: `${VEHICULES_SHEET_NAME}!E${ligne}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[prenom]] }
+    });
 
     message.react("✅");
 
   } catch (err) {
-    console.error("Erreur Sheets (update véhicule) :", err);
+    console.error("Erreur Sheets (anti double attribution) :", err);
     message.react("❌");
   }
 });
