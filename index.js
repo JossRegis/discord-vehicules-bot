@@ -128,6 +128,17 @@ client.on("messageReactionAdd", async (reaction, user) => {
   }
 });
 
+// =====================
+// Bot Discord - Bilan
+// =====================
+const bilanClient = new Client({
+  intents: [GatewayIntentBits.Guilds]
+});
+
+bilanClient.once("ready", () => {
+  console.log(`📊 Bot Bilan connecté : ${bilanClient.user.tag}`);
+});
+
 // =====================================================
 // 🍕 CRON – BILAN FINANCIER AVEC COMPARAISON
 // Dimanche 23h59 – Europe/Paris
@@ -186,9 +197,10 @@ cron.schedule(
       const diff = (a, b) => a - b;
       const arrow = v => (v >= 0 ? "📈" : "📉");
 
-      const channel = client.channels.cache.find(
-        c => c.name === "bilan-semaine"
+      const channel = bilanClient.channels.cache.find(
+      c => c.name === "bilan-semaine"
       );
+
       if (!channel) return;
 
       const message =
@@ -224,3 +236,5 @@ cron.schedule(
 // Login
 // =====================
 client.login(process.env.DISCORD_TOKEN);
+bilanClient.login(process.env.DISCORD_BILAN_TOKEN);
+
