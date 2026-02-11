@@ -16,6 +16,7 @@ const cron = require("node-cron");
 
 const VEHICULES_SHEET_NAME = "Véhicules";
 const RH_SHEET_NAME = "Comptabilité Général";
+const BILAN_SHEET_NAME = "Récapitulatif Hebdo";
 
 const RH_CHANNEL_NAME = "recrutement";
 const VEHICULE_CHANNEL_NAME = "véhicules";
@@ -26,6 +27,8 @@ const ROLES_CONFIG = {
   "Pizzaiolo Vétéran": { start: 26, end: 33 },
   "Vendeur": { start: 17, end: 24 }
 };
+
+const SHEET_ID = process.env.SHEET_ID;
 
 // =====================================================
 // 🤖 DISCORD CLIENT
@@ -58,115 +61,124 @@ const auth = new google.auth.GoogleAuth({
 });
 
 const sheets = google.sheets({ version: "v4", auth });
-const drive = google.drive({ version: "v3", auth });
-
-const SHEET_ID = process.env.SHEET_ID;
 
 // =====================================================
-// 🚗 COMMANDE VEHICULE
+// 📊 FONCTION GENERATION BILAN
+// =====================================================
+
+async function genererBilan() {
+  try {
+    const getCell = async (cell) => {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `${BILAN_SHEET_NAME}!${cell}`
+      });
+      return Number(res.data.values?.[0]?.[0] ?? 0);
+    };
+
+    const ca =
+      (await getCell("F23")) +
+      (await getCell("F24")) +
+      (await getCell("F25"));
+
+    let dep = 0;
+    for (let i = 23; i <= 30; i++) {
+      dep += await getCell(`J${i}`);
+    }
+
+    const benef = await getCell("I41");
+
+    return (
+      `🍕 **Bilan Hebdomadaire**\n\n` +
+      `🟢 CA : ${ca}$\n` +
+      `🔴 Dépenses : ${dep}$\n` +
+      `💰 Bénéfice : ${benef}$`
+    );
+  } catch (err) {
+    console.error("Erreur génération bilan:", err);
+    return null;
+  }
+}
+
+// =====================================================
+// 🚗 VEHICULES
 // =====================================================
 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
-  if (message.channel.name !== VEHICULE_CHANNEL_NAME) return;
-  if (!message.content.startsWith("!vehicule")) return;
 
-  const contenu = message.content.replace("!vehicule", "").trim();
-  const [vehicule, plaque, prenomBrut] = contenu.split("|").map(v => v?.trim());
-  if (!vehicule || !plaque) return message.react("❌");
-
-  const prenom = prenomBrut || message.author.username;
-
-  try {
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: `${VEHICULES_SHEET_NAME}!D:E`
-    });
-
-    const rows = res.data.values || [];
-
-    const index = rows.findIndex(
-      r => r[0]?.toUpperCase() === plaque.toUpperCase()
+  // ================= TEST BILAN =================
+  if (message.content === "!testbilan") {
+    const channel = await client.channels.fetch(
+      process.env.DISCORD_BILAN_CHANNEL_ID
     );
+    if (!channel) return message.reply("❌ Salon bilan introuvable");
 
-    if (index === -1)
-      return message.reply("❌ Plaque introuvable");
+    const bilan = await genererBilan();
+    if (!bilan) return message.reply("❌ Erreur génération bilan");
 
-    const ligne = index + 1;
-    const conducteur = rows[index][1] || "Libre";
-
-    if (conducteur.toLowerCase() !== "libre")
-      return message.reply(`🚫 Déjà attribué à ${conducteur}`);
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: `${VEHICULES_SHEET_NAME}!E${ligne}`,
-      valueInputOption: "RAW",
-      requestBody: { values: [[prenom]] }
-    });
-
-    message.react("✅");
-
-  } catch (err) {
-    console.error("Erreur véhicule:", err);
-    message.react("❌");
+    await channel.send(bilan);
+    return message.reply("🧪 Bilan envoyé manuellement");
   }
-});
 
-// =====================================================
-// ❌ LIBERATION VEHICULE
-// =====================================================
+  // ================= VEHICULE =================
+  if (
+    message.channel.name === VEHICULE_CHANNEL_NAME &&
+    message.content.startsWith("!vehicule")
+  ) {
+    const contenu = message.content.replace("!vehicule", "").trim();
+    const [vehicule, plaque, prenomBrut] = contenu
+      .split("|")
+      .map((v) => v?.trim());
 
-client.on("messageReactionAdd", async (reaction, user) => {
-  if (user.bot) return;
-  if (!["❌", "X"].includes(reaction.emoji.name)) return;
-  if (reaction.message.channel.name !== VEHICULE_CHANNEL_NAME) return;
+    if (!vehicule || !plaque) return message.react("❌");
 
-  const contenu = reaction.message.content.replace("!vehicule", "").trim();
-  const [, plaque] = contenu.split("|").map(v => v.trim());
+    const prenom = prenomBrut || message.author.username;
 
-  try {
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: `${VEHICULES_SHEET_NAME}!D:D`
-    });
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `${VEHICULES_SHEET_NAME}!D:E`
+      });
 
-    const rows = res.data.values || [];
-    const index = rows.findIndex(
-      r => r[0]?.toUpperCase() === plaque.toUpperCase()
-    );
+      const rows = res.data.values || [];
 
-    if (index === -1) return;
+      const index = rows.findIndex(
+        (r) => r[0]?.toUpperCase() === plaque.toUpperCase()
+      );
 
-    const ligne = index + 1;
+      if (index === -1) return message.reply("❌ Plaque introuvable");
 
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: `${VEHICULES_SHEET_NAME}!E${ligne}`,
-      valueInputOption: "RAW",
-      requestBody: { values: [["Libre"]] }
-    });
+      const ligne = index + 1;
+      const conducteur = rows[index][1] || "Libre";
 
-    await reaction.message.delete();
+      if (conducteur.toLowerCase() !== "libre")
+        return message.reply(`🚫 Déjà attribué à ${conducteur}`);
 
-  } catch (err) {
-    console.error("Erreur libération:", err);
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `${VEHICULES_SHEET_NAME}!E${ligne}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [[prenom]] }
+      });
+
+      message.react("✅");
+    } catch (err) {
+      console.error("Erreur véhicule:", err);
+      message.react("❌");
+    }
   }
-});
 
-// =====================================================
-// 👥 RECRUTEMENT & LICENCIEMENT
-// =====================================================
-
-client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
-  if (message.channel.name !== RH_CHANNEL_NAME) return;
-
-  // ===== RECRUTER =====
-  if (message.content.startsWith("!recruter")) {
+  // ================= RECRUTEMENT =================
+  if (
+    message.channel.name === RH_CHANNEL_NAME &&
+    message.content.startsWith("!recruter")
+  ) {
     const lignes = message.content.split("\n");
     if (lignes.length < 4)
-      return message.reply("Format:\n!recruter\nPseudoDiscord\nPrénom Nom\nFonction");
+      return message.reply(
+        "Format:\n!recruter\nPseudoDiscord\nPrénom Nom\nFonction"
+      );
 
     const pseudo = lignes[1].trim();
     const nom = lignes[2].trim();
@@ -186,11 +198,16 @@ client.on("messageCreate", async (message) => {
     });
   }
 
-  // ===== LICENCIER =====
-  if (message.content.startsWith("!licencier")) {
+  // ================= LICENCIEMENT =================
+  if (
+    message.channel.name === RH_CHANNEL_NAME &&
+    message.content.startsWith("!licencier")
+  ) {
     const lignes = message.content.split("\n");
     if (lignes.length < 3)
-      return message.reply("Format:\n!licencier\nPseudoDiscord\nFonction");
+      return message.reply(
+        "Format:\n!licencier\nPseudoDiscord\nFonction"
+      );
 
     const pseudo = lignes[1].trim();
     const fonction = lignes[2].trim();
@@ -211,7 +228,7 @@ client.on("messageCreate", async (message) => {
 });
 
 // =====================================================
-// 🔘 INTERACTIONS BOUTONS RH
+// 🔘 INTERACTIONS RH
 // =====================================================
 
 client.on("interactionCreate", async (interaction) => {
@@ -219,6 +236,7 @@ client.on("interactionCreate", async (interaction) => {
 
   const data = interaction.customId.split("|");
 
+  // ===== RECRUTEMENT =====
   if (data[0] === "recrutement") {
     const [_, pseudo, nom, fonction] = data;
     const { start, end } = ROLES_CONFIG[fonction];
@@ -231,7 +249,7 @@ client.on("interactionCreate", async (interaction) => {
     const rows = res.data.values || [];
     let ligneLibre = null;
 
-    for (let i = 0; i <= (end - start); i++) {
+    for (let i = 0; i <= end - start; i++) {
       if (!rows[i] || !rows[i][0]) {
         ligneLibre = start + i;
         break;
@@ -239,7 +257,10 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (!ligneLibre)
-      return interaction.reply({ content: "❌ Plus de place", ephemeral: true });
+      return interaction.reply({
+        content: "❌ Plus de place disponible",
+        ephemeral: true
+      });
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
@@ -254,6 +275,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
+  // ===== LICENCIEMENT =====
   if (data[0] === "licenciement") {
     const [_, pseudo, fonction] = data;
     const { start, end } = ROLES_CONFIG[fonction];
@@ -264,10 +286,13 @@ client.on("interactionCreate", async (interaction) => {
     });
 
     const rows = res.data.values || [];
-    const index = rows.findIndex(r => r && r[0] === pseudo);
+    const index = rows.findIndex((r) => r && r[0] === pseudo);
 
     if (index === -1)
-      return interaction.reply({ content: "❌ Introuvable", ephemeral: true });
+      return interaction.reply({
+        content: "❌ Employé introuvable",
+        ephemeral: true
+      });
 
     const ligne = start + index;
 
@@ -286,57 +311,29 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // =====================================================
-// 📊 BILAN AUTOMATIQUE DIMANCHE 23H55
+// 📊 BILAN AUTO DIMANCHE 23H55
 // =====================================================
 
-cron.schedule("55 23 * * 0", async () => {
-  try {
-    const channel = await client.channels.fetch(process.env.DISCORD_BILAN_CHANNEL_ID
-);
-    if (!channel) return;
+cron.schedule(
+  "55 23 * * 0",
+  async () => {
+    try {
+      const channel = await client.channels.fetch(
+        process.env.DISCORD_BILAN_CHANNEL_ID
+      );
+      if (!channel) return;
 
-    const getCell = async (cell) => {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: `Récapitulatif Hebdo!${cell}`
-      });
-      return Number(res.data.values?.[0]?.[0] ?? 0);
-    };
+      const bilan = await genererBilan();
+      if (!bilan) return;
 
-    const ca = (await getCell("F23")) +
-               (await getCell("F24")) +
-               (await getCell("F25"));
-
-    let dep = 0;
-    for (let i = 23; i <= 30; i++) {
-      dep += await getCell(`J${i}`);
+      await channel.send(bilan);
+      console.log("📊 Bilan automatique envoyé");
+    } catch (err) {
+      console.error("Erreur bilan auto:", err);
     }
-
-    const benef = await getCell("I41");
-
-    await channel.send(
-      `🍕 **Bilan Hebdomadaire**\n\n` +
-      `🟢 CA : ${ca}$\n` +
-      `🔴 Dépenses : ${dep}$\n` +
-      `💰 Bénéfice : ${benef}$`
-    );
-
-    console.log("📊 Bilan envoyé");
-
-  } catch (err) {
-    console.error("Erreur bilan:", err);
-  }
-}, { timezone: "Europe/Paris" });
-
-// =====================================================
-// 🧪 TEST BILAN
-// =====================================================
-
-client.on("messageCreate", async (message) => {
-  if (message.content === "!testbilan") {
-    message.reply("🧪 Test bilan déclenché (attendre dimanche ou adapter code)");
-  }
-});
+  },
+  { timezone: "Europe/Paris" }
+);
 
 // =====================================================
 // 🚀 LOGIN
