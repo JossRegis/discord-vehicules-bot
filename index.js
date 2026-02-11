@@ -296,7 +296,50 @@ client.on("interactionCreate", async (interaction) => {
       components: []
     });
   }
+});// =====================================================
+// 📊 BILAN HEBDOMADAIRE - DIMANCHE 23H55
+// =====================================================
+cron.schedule("55 23 * * 0", async () => {
+  console.log("📊 Génération du bilan hebdomadaire...");
+
+  try {
+
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SHEET_ID,
+      range: `${RH_SHEET_NAME}!B17:B76`
+    });
+
+    const rows = res.data.values || [];
+
+    let totalEmployes = 0;
+
+    rows.forEach(row => {
+      if (row && row[0]) totalEmployes++;
+    });
+
+    // Récupère automatiquement le salon #bilan-semaine
+    const channel = client.channels.cache.find(
+      ch => ch.name === "bilan-semaine"
+    );
+
+    if (!channel) {
+      console.log("❌ Salon bilan-semaine introuvable");
+      return;
+    }
+
+    await channel.send(
+      `📊 **BILAN HEBDOMADAIRE** 📊\n\n` +
+      `👥 Employés actifs : ${totalEmployes}\n` +
+      `📅 Semaine terminée le : ${new Date().toLocaleDateString("fr-FR")}`
+    );
+
+    console.log("✅ Bilan envoyé avec succès");
+
+  } catch (err) {
+    console.error("Erreur bilan :", err);
+  }
 });
+
 
 // =====================
 // LOGIN
