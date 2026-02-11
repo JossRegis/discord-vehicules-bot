@@ -68,32 +68,65 @@ const sheets = google.sheets({ version: "v4", auth });
 
 async function genererBilan() {
   try {
+
+    const ONGLET_BILAN = "Récapitulatif Hebdo";
+
+    // ---------- Fonction lecture cellule sécurisée ----------
     const getCell = async (cell) => {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: `${BILAN_SHEET_NAME}!${cell}`
-      });
-      return Number(res.data.values?.[0]?.[0] ?? 0);
+      try {
+        const res = await sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: `${ONGLET_BILAN}!${cell}`
+        });
+
+        let value = res.data.values?.[0]?.[0];
+
+        if (!value) return 0;
+
+        // Nettoyage complet
+        value = value
+          .toString()
+          .replace(/\s/g, "")   // supprime espaces
+          .replace(/\$/g, "")   // supprime $
+          .replace(",", ".");   // remplace virgule
+
+        const number = parseFloat(value);
+
+        return isNaN(number) ? 0 : number;
+
+      } catch (err) {
+        console.error(`Erreur lecture cellule ${cell}`, err);
+        return 0;
+      }
     };
 
+    // ---------- Calcul CA ----------
     const ca =
       (await getCell("F23")) +
       (await getCell("F24")) +
       (await getCell("F25"));
 
+    // ---------- Calcul Dépenses ----------
     let dep = 0;
+
     for (let i = 23; i <= 30; i++) {
       dep += await getCell(`J${i}`);
     }
 
+    // ---------- Bénéfice ----------
     const benef = await getCell("I41");
+
+    // ---------- Formatage affichage ----------
+    const format = (n) =>
+      n.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 
     return (
       `🍕 **Bilan Hebdomadaire**\n\n` +
-      `🟢 CA : ${ca}$\n` +
-      `🔴 Dépenses : ${dep}$\n` +
-      `💰 Bénéfice : ${benef}$`
+      `🟢 CA : ${format(ca)}$\n` +
+      `🔴 Dépenses : ${format(dep)}$\n` +
+      `💰 Bénéfice : ${format(benef)}$`
     );
+
   } catch (err) {
     console.error("Erreur génération bilan:", err);
     return null;
