@@ -291,7 +291,8 @@ client.on("interactionCreate", async (interaction) => {
 
 cron.schedule("55 23 * * 0", async () => {
   try {
-    const channel = await client.channels.fetch(process.env.BILAN_CHANNEL_ID);
+    const channel = await client.channels.fetch(process.env.DISCORD_BILAN_CHANNEL_ID
+);
     if (!channel) return;
 
     const getCell = async (cell) => {
