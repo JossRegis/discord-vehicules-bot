@@ -161,30 +161,29 @@ bilanClient.once("ready", () => {
 });
 
 // =====================================================
-// 🍕 CRON – BILAN FINANCIER AVEC COMPARAISON
+// 🍕 CRON – BILAN FINANCIER (SANS COMPARAISON)
 // Dimanche 23h59 – Europe/Paris
 // =====================================================
 cron.schedule(
-  "59 23 * * 0", // MODE TEST
+  "59 23 * * 0",
   async () => {
     try {
       console.log("📊 Génération du bilan financier");
 
-      // 📁 récupérer les 2 derniers fichiers Sheets
+      // 📁 récupérer uniquement le fichier le plus récent
       const files = await drive.files.list({
         q: "mimeType='application/vnd.google-apps.spreadsheet'",
         orderBy: "createdTime desc",
         fields: "files(id, name)",
-        pageSize: 2
+        pageSize: 1
       });
 
-      if (!files.data.files || files.data.files.length < 2) {
-        console.log("❌ Pas assez de fichiers Sheets");
+      if (!files.data.files || files.data.files.length === 0) {
+        console.log("❌ Aucun fichier Sheets trouvé");
         return;
       }
 
       const current = files.data.files[0];
-      const previous = files.data.files[1];
 
       const getCell = async (sheetId, cell) => {
         const res = await sheets.spreadsheets.values.get({
@@ -195,31 +194,19 @@ cron.schedule(
       };
 
       // 🟢 Chiffre d'affaires
-      const caCurrent =
+      const ca =
         (await getCell(current.id, "F23")) +
         (await getCell(current.id, "F24")) +
         (await getCell(current.id, "F25"));
 
-      const caPrevious =
-        (await getCell(previous.id, "F23")) +
-        (await getCell(previous.id, "F24")) +
-        (await getCell(previous.id, "F25"));
-
       // 🔴 Dépenses
-      let depCurrent = 0;
-      let depPrevious = 0;
-
+      let dep = 0;
       for (let i = 23; i <= 30; i++) {
-        depCurrent += await getCell(current.id, `J${i}`);
-        depPrevious += await getCell(previous.id, `J${i}`);
+        dep += await getCell(current.id, `J${i}`);
       }
 
       // 💰 Bénéfice net
-      const benefCurrent = await getCell(current.id, "I41");
-      const benefPrevious = await getCell(previous.id, "I41");
-
-      const diff = (a, b) => a - b;
-      const arrow = v => (v >= 0 ? "📈" : "📉");
+      const benef = await getCell(current.id, "I41");
 
       const channel = await bilanClient.channels.fetch("1469508002468856030");
       if (!channel) return;
@@ -229,19 +216,13 @@ cron.schedule(
         `📅 ${current.name}\n\n` +
 
         "🟢 **Chiffre d’affaires**\n" +
-        `• Cette semaine : ${caCurrent}$\n` +
-        `• Semaine précédente : ${caPrevious}$\n` +
-        `${arrow(diff(caCurrent, caPrevious))} Évolution : ${diff(caCurrent, caPrevious)}$\n\n` +
+        `• Total : ${ca}$\n\n` +
 
         "🔴 **Dépenses**\n" +
-        `• Cette semaine : ${depCurrent}$\n` +
-        `• Semaine précédente : ${depPrevious}$\n` +
-        `${arrow(diff(depCurrent, depPrevious))} Évolution : ${diff(depCurrent, depPrevious)}$\n\n` +
+        `• Total : ${dep}$\n\n` +
 
         "💰 **Bénéfice net**\n" +
-        `• Cette semaine : ${benefCurrent}$\n` +
-        `• Semaine précédente : ${benefPrevious}$\n` +
-        `${arrow(diff(benefCurrent, benefPrevious))} Évolution : ${diff(benefCurrent, benefPrevious)}$`;
+        `• Total : ${benef}$`;
 
       await channel.send(message);
       console.log("✅ Bilan envoyé");
