@@ -8,7 +8,6 @@ const {
 } = require("discord.js");
 
 const { google } = require("googleapis");
-const cron = require("node-cron");
 
 // =====================================================
 // 🔧 CONFIGURATION
@@ -17,6 +16,7 @@ const cron = require("node-cron");
 const RH_SHEET_NAME = "Comptabilité Général";
 const BILAN_SHEET_NAME = "Récapitulatif Hebdo";
 const RH_CHANNEL_NAME = "recrutement";
+const VEHICULE_SHEET_NAME = "Véhicules";
 
 const ROLES_CONFIG = {
   "Pizzaiolo Apprenti": { start: 43, end: 76 },
@@ -40,7 +40,7 @@ const client = new Client({
   partials: [Partials.Channel]
 });
 
-client.once("clientReady", () => {
+client.once("ready", () => {
   console.log(`🤖 Connecté en tant que ${client.user.tag}`);
 });
 
@@ -56,45 +56,32 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: "v4", auth });
 
 // =====================================================
-// 📊 GENERATION BILAN
+// 📋 LISTE VEHICULES DISPONIBLES
 // =====================================================
 
-async function genererBilan() {
-  try {
-    const getCell = async (cell) => {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: `${BILAN_SHEET_NAME}!${cell}`
-      });
+async function genererListeVehicules() {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${VEHICULE_SHEET_NAME}!C2:E200`
+  });
 
-      let value = res.data.values?.[0]?.[0];
-      if (!value) return 0;
+  const rows = res.data.values || [];
+  let disponibles = [];
 
-      value = value.toString().replace(/\s/g, "").replace(/\$/g, "").replace(",", ".");
-      const number = parseFloat(value);
-      return isNaN(number) ? 0 : number;
-    };
+  for (let row of rows) {
+    const vehicule = row[0];
+    const plaque = row[1];
+    const attribueA = row[2]?.toString().trim().toLowerCase();
 
-    const ca =
-      (await getCell("F23")) +
-      (await getCell("F24")) +
-      (await getCell("F25"));
-
-    let dep = 0;
-    for (let i = 23; i <= 30; i++) {
-      dep += await getCell(`J${i}`);
+    if (attribueA === "libre") {
+      disponibles.push(`🚗 ${vehicule} — ${plaque}`);
     }
-
-    const benef = await getCell("I41");
-
-    const format = (n) =>
-      n.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
-
-    return `🍕 **Bilan Hebdomadaire**\n\n🟢 CA : ${format(ca)}$\n🔴 Dépenses : ${format(dep)}$\n💰 Bénéfice : ${format(benef)}$`;
-  } catch (err) {
-    console.error("Erreur génération bilan:", err);
-    return null;
   }
+
+  if (disponibles.length === 0)
+    return "❌ Aucun véhicule disponible.";
+
+  return `📋 **Véhicules disponibles :**\n\n${disponibles.join("\n")}`;
 }
 
 // =====================================================
@@ -104,82 +91,16 @@ async function genererBilan() {
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  // ===== TEST BILAN =====
-  if (message.content === "!testbilan") {
-    if (!process.env.DISCORD_BILAN_CHANNEL_ID)
-      return message.reply("❌ DISCORD_BILAN_CHANNEL_ID manquant");
-
-    const channel = client.channels.cache.get(
-      process.env.DISCORD_BILAN_CHANNEL_ID
-    );
-
-    if (!channel)
-      return message.reply("❌ Salon bilan introuvable");
-
-    const bilan = await genererBilan();
-    if (!bilan)
-      return message.reply("❌ Erreur génération bilan");
-
-    await channel.send(bilan);
-    return message.reply("🧪 Bilan envoyé");
-  }
-
-  // ===== RECRUTEMENT =====
-  if (
-    message.channel.name === RH_CHANNEL_NAME &&
-    message.content.startsWith("!recruter")
-  ) {
-    const lignes = message.content.split("\n");
-    if (lignes.length < 4)
-      return message.reply("Format:\n!recruter\nPseudoDiscord\nPrénom Nom\nFonction");
-
-    const pseudo = lignes[1].trim();
-    const nom = lignes[2].trim();
-    const fonction = lignes[3].trim();
-
-    if (!ROLES_CONFIG[fonction])
-      return message.reply("❌ Fonction invalide");
-
-    const bouton = new ButtonBuilder()
-      .setCustomId(`recrutement|${pseudo}|${nom}|${fonction}`)
-      .setLabel("Valider le recrutement")
-      .setStyle(ButtonStyle.Success);
-
-    return message.reply({
-      content: `📝 Recrutement en attente :\n\n👤 ${pseudo}\n📛 ${nom}\n💼 ${fonction}`,
-      components: [new ActionRowBuilder().addComponents(bouton)]
-    });
-  }
-
-  // ===== LICENCIEMENT =====
-  if (
-    message.channel.name === RH_CHANNEL_NAME &&
-    message.content.startsWith("!licencier")
-  ) {
-    const lignes = message.content.split("\n");
-    if (lignes.length < 3)
-      return message.reply("Format:\n!licencier\nPseudoDiscord\nFonction");
-
-    const pseudo = lignes[1].trim();
-    const fonction = lignes[2].trim();
-
-    if (!ROLES_CONFIG[fonction])
-      return message.reply("❌ Fonction invalide");
-
-    const bouton = new ButtonBuilder()
-      .setCustomId(`licenciement|${pseudo}|${fonction}`)
-      .setLabel("Valider le licenciement")
-      .setStyle(ButtonStyle.Danger);
-
-    return message.reply({
-      content: `⚠️ Licenciement en attente :\n\n👤 ${pseudo}\n💼 ${fonction}`,
-      components: [new ActionRowBuilder().addComponents(bouton)]
-    });
+  // ===== LISTE VEHICULES =====
+  if (message.content === "!vehicules") {
+    const liste = await genererListeVehicules();
+    return message.reply(liste);
   }
 
   // ===== VEHICULE =====
   if (message.content.startsWith("!vehicule")) {
     const lignes = message.content.split("\n");
+
     if (lignes.length < 4)
       return message.reply(
         "Format:\n!vehicule\nNom du véhicule\nImmatriculation\nNom de la personne"
@@ -189,18 +110,24 @@ client.on("messageCreate", async (message) => {
     const plaque = lignes[2].trim();
     const nom = lignes[3].trim();
 
-    const bouton = new ButtonBuilder()
-      .setCustomId(`vehicule|${vehicule}|${plaque}|${nom}`)
-      .setLabel("Valider l'attribution")
-      .setStyle(ButtonStyle.Primary);
-
     return message.reply({
       content: `🚗 **Demande d'attribution véhicule**
 
 **Véhicule :** ${vehicule}
 **Immatriculation :** ${plaque}
-**Nom de la personne :** ${nom}`,
-      components: [new ActionRowBuilder().addComponents(bouton)]
+**Nom :** ${nom}`,
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`vehicule|${vehicule}|${plaque}|${nom}`)
+            .setLabel("✅ Valider")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`annulervehicule|${vehicule}|${plaque}`)
+            .setLabel("❌ Annuler")
+            .setStyle(ButtonStyle.Danger)
+        )
+      ]
     });
   }
 });
@@ -215,144 +142,112 @@ client.on("interactionCreate", async (interaction) => {
   try {
     const data = interaction.customId.split("|");
 
-    // ===== RECRUTEMENT =====
-    if (data[0] === "recrutement") {
-      const [_, pseudo, nom, fonction] = data;
-      const { start, end } = ROLES_CONFIG[fonction];
+    // ==========================
+    // ✅ ATTRIBUTION VEHICULE
+    // ==========================
+    if (data[0] === "vehicule") {
+      const [_, vehicule, plaque, nom] = data;
 
       const res = await sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: `${RH_SHEET_NAME}!E${start}:E${end}`
-      });
-
-      const noms = res.data.values || [];
-      let ligneLibre = null;
-
-      for (let i = 0; i < (end - start + 1); i++) {
-        const rowIndex = start + i;
-        const nomCell = noms[i]?.[0];
-
-        if (!nomCell || nomCell.toString().trim() === "") {
-          ligneLibre = rowIndex;
-          break;
-        }
-      }
-
-      if (!ligneLibre) {
-        return interaction.reply({
-          content: "❌ Plus de place disponible pour ce rôle.",
-          ephemeral: true
-        });
-      }
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: `${RH_SHEET_NAME}!B${ligneLibre}:E${ligneLibre}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: {
-          values: [[pseudo, "", fonction, nom]]
-        }
-      });
-
-      return interaction.update({
-        content: `✅ ${nom} recruté en ${fonction}`,
-        components: []
-      });
-    }
-
-    // ===== LICENCIEMENT =====
-    if (data[0] === "licenciement") {
-      const [_, pseudo, fonction] = data;
-      const { start, end } = ROLES_CONFIG[fonction];
-
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: `${RH_SHEET_NAME}!B${start}:B${end}`
+        range: `${VEHICULE_SHEET_NAME}!C2:E200`
       });
 
       const rows = res.data.values || [];
-      let ligne = null;
+      let ligneTrouvee = null;
 
       for (let i = 0; i < rows.length; i++) {
-        if (rows[i][0] === pseudo) {
-          ligne = start + i;
+        const row = rows[i];
+
+        const vehiculeSheet = row[0]?.toString().trim().toLowerCase();
+        const plaqueSheet = row[1]?.toString().trim().toLowerCase();
+        const attribueA = row[2]?.toString().trim().toLowerCase();
+
+        if (
+          vehiculeSheet === vehicule.toLowerCase() &&
+          plaqueSheet === plaque.toLowerCase() &&
+          attribueA === "libre"
+        ) {
+          ligneTrouvee = i + 2;
           break;
         }
       }
 
-      if (!ligne) {
+      if (!ligneTrouvee)
         return interaction.reply({
-          content: "❌ Employé introuvable.",
+          content: "❌ Véhicule introuvable ou déjà attribué.",
           ephemeral: true
         });
-      }
 
-      await sheets.spreadsheets.values.clear({
+      await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
-        range: `${RH_SHEET_NAME}!B${ligne}:E${ligne}`
+        range: `${VEHICULE_SHEET_NAME}!E${ligneTrouvee}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[nom]] }
       });
 
       return interaction.update({
-        content: `🚨 ${pseudo} licencié (${fonction})`,
+        content: `✅ Véhicule attribué !
+
+🚗 ${vehicule}
+🪪 ${plaque}
+👤 ${nom}`,
         components: []
       });
     }
 
-// ===== VEHICULE =====
-if (data[0] === "vehicule") {
-  const [_, vehicule, plaque, nom] = data;
+    // ==========================
+    // ❌ ANNULATION VEHICULE
+    // ==========================
+    if (data[0] === "annulervehicule") {
+      const [_, vehicule, plaque] = data;
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `Véhicules!C2:E200`
-  });
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `${VEHICULE_SHEET_NAME}!C2:E200`
+      });
 
-  const rows = res.data.values || [];
-  let ligneTrouvee = null;
+      const rows = res.data.values || [];
+      let ligneTrouvee = null;
 
-for (let i = 0; i < rows.length; i++) {
-  const row = rows[i];
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
 
-  const vehiculeSheet = row[0]?.toString().trim();
-  const plaqueSheet = row[1]?.toString().trim();
-  const attribueA = row[2]?.toString().trim();
+        const vehiculeSheet = row[0]?.toString().trim().toLowerCase();
+        const plaqueSheet = row[1]?.toString().trim().toLowerCase();
 
-  if (
-    vehiculeSheet?.toLowerCase() === vehicule.toLowerCase().trim() &&
-    plaqueSheet?.toLowerCase() === plaque.toLowerCase().trim() &&
-    attribueA?.toLowerCase() === "libre"
-  ) {
-    ligneTrouvee = i + 2;
-    break;
-  }
-}
+        if (
+          vehiculeSheet === vehicule.toLowerCase() &&
+          plaqueSheet === plaque.toLowerCase()
+        ) {
+          ligneTrouvee = i + 2;
+          break;
+        }
+      }
 
+      if (!ligneTrouvee)
+        return interaction.reply({
+          content: "❌ Véhicule introuvable.",
+          ephemeral: true
+        });
 
-  if (!ligneTrouvee) {
-    return interaction.reply({
-      content: "❌ Véhicule introuvable ou déjà attribué.",
-      ephemeral: true
-    });
-  }
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `${VEHICULE_SHEET_NAME}!E${ligneTrouvee}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [["Libre"]] }
+      });
 
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SHEET_ID,
-    range: `Véhicules!E${ligneTrouvee}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [[nom]]
+      const liste = await genererListeVehicules();
+
+      return interaction.update({
+        content: `🔄 Véhicule remis disponible !
+
+${liste}`,
+        components: []
+      });
     }
-  });
 
-  return interaction.update({
-    content: `✅ Véhicule attribué avec succès
-
-🚗 Véhicule : ${vehicule}
-🪪 Immatriculation : ${plaque}
-👤 Attribué à : ${nom}`,
-    components: []
-  });
-}
   } catch (error) {
     console.error("Erreur interaction :", error);
 
