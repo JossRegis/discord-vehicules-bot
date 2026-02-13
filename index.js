@@ -176,7 +176,6 @@ client.on("messageCreate", async (message) => {
       components: [new ActionRowBuilder().addComponents(bouton)]
     });
   }
-});
 
   // ===== VEHICULE =====
   if (message.content.startsWith("!vehicule")) {
@@ -204,6 +203,7 @@ client.on("messageCreate", async (message) => {
       components: [new ActionRowBuilder().addComponents(bouton)]
     });
   }
+});
 
 // =====================================================
 // 🔘 INTERACTIONS
