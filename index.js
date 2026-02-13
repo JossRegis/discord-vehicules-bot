@@ -202,34 +202,72 @@ client.on("messageCreate", async (message) => {
     }
   }
 
-  // ================= RECRUTEMENT =================
-  if (
-    message.channel.name === RH_CHANNEL_NAME &&
-    message.content.startsWith("!recruter")
-  ) {
-    const lignes = message.content.split("\n");
-    if (lignes.length < 4)
-      return message.reply(
-        "Format:\n!recruter\nPseudoDiscord\nPrénom Nom\nFonction"
-      );
+ // ===== RECRUTEMENT =====
+if (data[0] === "recrutement") {
 
-    const pseudo = lignes[1].trim();
-    const nom = lignes[2].trim();
-    const fonction = lignes[3].trim();
+  const [_, pseudo, nom, fonction] = data;
+  const { start, end } = ROLES_CONFIG[fonction];
 
-    if (!ROLES_CONFIG[fonction])
-      return message.reply("❌ Fonction invalide");
+  try {
 
-    const bouton = new ButtonBuilder()
-      .setCustomId(`recrutement|${pseudo}|${nom}|${fonction}`)
-      .setLabel("Valider le recrutement")
-      .setStyle(ButtonStyle.Success);
+    // 🔎 On lit colonne E (Nom Prénom)
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${RH_SHEET_NAME}!E${start}:E${end}`
+    });
 
-    return message.reply({
-      content: `📝 Recrutement:\n${pseudo}\n${nom}\n${fonction}`,
-      components: [new ActionRowBuilder().addComponents(bouton)]
+    const rows = res.data.values || [];
+    let ligneLibre = null;
+
+    for (let i = 0; i < (end - start + 1); i++) {
+      if (!rows[i] || !rows[i][0]) {
+        ligneLibre = start + i;
+        break;
+      }
+    }
+
+    if (!ligneLibre) {
+      return interaction.reply({
+        content: "❌ Plus de place disponible",
+        ephemeral: true
+      });
+    }
+
+    // ✅ On écrit UNIQUEMENT les cellules nécessaires
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${RH_SHEET_NAME}!B${ligneLibre}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[pseudo]] }
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${RH_SHEET_NAME}!D${ligneLibre}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[fonction]] }
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${RH_SHEET_NAME}!E${ligneLibre}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [[nom]] }
+    });
+
+    await interaction.update({
+      content: `✅ ${nom} recruté en ${fonction}`,
+      components: []
+    });
+
+  } catch (err) {
+    console.error("Erreur recrutement:", err);
+    await interaction.reply({
+      content: "❌ Erreur recrutement",
+      ephemeral: true
     });
   }
+}
 
   // ================= LICENCIEMENT =================
   if (
