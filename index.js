@@ -189,24 +189,54 @@ client.on("interactionCreate", async (interaction) => {
     const data = interaction.customId.split("|");
 
     // ===== RECRUTEMENT =====
-    if (data[0] === "recrutement") {
-      const [_, pseudo, nom, fonction] = data;
-      const { start, end } = ROLES_CONFIG[fonction];
+if (data[0] === "recrutement") {
+  const [_, pseudo, nom, fonction] = data;
+  const { start, end } = ROLES_CONFIG[fonction];
 
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: `${RH_SHEET_NAME}!B${start}:B${end}`
-      });
+  // On récupère TOUTE la plage B(start à end)
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${RH_SHEET_NAME}!B${start}:B${end}`,
+    majorDimension: "ROWS"
+  });
 
-      const rows = res.data.values || [];
-      let ligneLibre = null;
+  const rows = res.data.values || [];
 
-      for (let i = 0; i < (end - start + 1); i++) {
-        if (!rows[i] || !rows[i][0]) {
-          ligneLibre = start + i;
-          break;
-        }
-      }
+  let ligneLibre = null;
+
+  for (let i = 0; i < (end - start + 1); i++) {
+    const rowIndex = start + i;
+
+    // Si la ligne n'existe pas dans la réponse OU cellule vide
+    if (!rows[i] || !rows[i][0] || rows[i][0].trim() === "") {
+      ligneLibre = rowIndex;
+      break;
+    }
+  }
+
+  if (!ligneLibre) {
+    return interaction.reply({
+      content: "❌ Plus de place disponible pour ce rôle.",
+      ephemeral: true
+    });
+  }
+
+  // On écrit toute la ligne en une seule requête
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${RH_SHEET_NAME}!B${ligneLibre}:E${ligneLibre}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[pseudo, "", fonction, nom]]
+    }
+  });
+
+  return interaction.update({
+    content: `✅ ${nom} recruté en ${fonction}`,
+    components: []
+  });
+}
+
 
       if (!ligneLibre)
         return interaction.reply({ content: "❌ Plus de place disponible", ephemeral: true });
