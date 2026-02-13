@@ -38,8 +38,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMessageReactions
+    GatewayIntentBits.MessageContent
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction]
 });
@@ -63,60 +62,42 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: "v4", auth });
 
 // =====================================================
-// 📊 FONCTION GENERATION BILAN
+// 📊 GENERATION BILAN
 // =====================================================
 
 async function genererBilan() {
   try {
-
-    const ONGLET_BILAN = "Récapitulatif Hebdo";
-
-    // ---------- Fonction lecture cellule sécurisée ----------
     const getCell = async (cell) => {
-      try {
-        const res = await sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: `${ONGLET_BILAN}!${cell}`
-        });
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `${BILAN_SHEET_NAME}!${cell}`
+      });
 
-        let value = res.data.values?.[0]?.[0];
+      let value = res.data.values?.[0]?.[0];
+      if (!value) return 0;
 
-        if (!value) return 0;
+      value = value
+        .toString()
+        .replace(/\s/g, "")
+        .replace(/\$/g, "")
+        .replace(",", ".");
 
-        // Nettoyage complet
-        value = value
-          .toString()
-          .replace(/\s/g, "")   // supprime espaces
-          .replace(/\$/g, "")   // supprime $
-          .replace(",", ".");   // remplace virgule
-
-        const number = parseFloat(value);
-
-        return isNaN(number) ? 0 : number;
-
-      } catch (err) {
-        console.error(`Erreur lecture cellule ${cell}`, err);
-        return 0;
-      }
+      const number = parseFloat(value);
+      return isNaN(number) ? 0 : number;
     };
 
-    // ---------- Calcul CA ----------
     const ca =
       (await getCell("F23")) +
       (await getCell("F24")) +
       (await getCell("F25"));
 
-    // ---------- Calcul Dépenses ----------
     let dep = 0;
-
     for (let i = 23; i <= 30; i++) {
       dep += await getCell(`J${i}`);
     }
 
-    // ---------- Bénéfice ----------
     const benef = await getCell("I41");
 
-    // ---------- Formatage affichage ----------
     const format = (n) =>
       n.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 
@@ -126,7 +107,6 @@ async function genererBilan() {
       `🔴 Dépenses : ${format(dep)}$\n` +
       `💰 Bénéfice : ${format(benef)}$`
     );
-
   } catch (err) {
     console.error("Erreur génération bilan:", err);
     return null;
@@ -134,13 +114,13 @@ async function genererBilan() {
 }
 
 // =====================================================
-// 🚗 VEHICULES
+// 📩 COMMANDES MESSAGE
 // =====================================================
 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  // ================= TEST BILAN =================
+  // ===== TEST BILAN =====
   if (message.content === "!testbilan") {
     const channel = await client.channels.fetch(
       process.env.DISCORD_BILAN_CHANNEL_ID
@@ -151,66 +131,82 @@ client.on("messageCreate", async (message) => {
     if (!bilan) return message.reply("❌ Erreur génération bilan");
 
     await channel.send(bilan);
-    return message.reply("🧪 Bilan envoyé manuellement");
+    return message.reply("🧪 Bilan envoyé");
   }
 
-  // ================= VEHICULE =================
+  // ===== RECRUTEMENT =====
   if (
-    message.channel.name === VEHICULE_CHANNEL_NAME &&
-    message.content.startsWith("!vehicule")
+    message.channel.name === RH_CHANNEL_NAME &&
+    message.content.startsWith("!recruter")
   ) {
-    const contenu = message.content.replace("!vehicule", "").trim();
-    const [vehicule, plaque, prenomBrut] = contenu
-      .split("|")
-      .map((v) => v?.trim());
+    const lignes = message.content.split("\n");
 
-    if (!vehicule || !plaque) return message.react("❌");
-
-    const prenom = prenomBrut || message.author.username;
-
-    try {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: `${VEHICULES_SHEET_NAME}!D:E`
-      });
-
-      const rows = res.data.values || [];
-
-      const index = rows.findIndex(
-        (r) => r[0]?.toUpperCase() === plaque.toUpperCase()
+    if (lignes.length < 4) {
+      return message.reply(
+        "Format:\n!recruter\nPseudoDiscord\nPrénom Nom\nFonction"
       );
-
-      if (index === -1) return message.reply("❌ Plaque introuvable");
-
-      const ligne = index + 1;
-      const conducteur = rows[index][1] || "Libre";
-
-      if (conducteur.toLowerCase() !== "libre")
-        return message.reply(`🚫 Déjà attribué à ${conducteur}`);
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: `${VEHICULES_SHEET_NAME}!E${ligne}`,
-        valueInputOption: "RAW",
-        requestBody: { values: [[prenom]] }
-      });
-
-      message.react("✅");
-    } catch (err) {
-      console.error("Erreur véhicule:", err);
-      message.react("❌");
     }
+
+    const pseudo = lignes[1].trim();
+    const nom = lignes[2].trim();
+    const fonction = lignes[3].trim();
+
+    if (!ROLES_CONFIG[fonction])
+      return message.reply("❌ Fonction invalide");
+
+    const bouton = new ButtonBuilder()
+      .setCustomId(`recrutement|${pseudo}|${nom}|${fonction}`)
+      .setLabel("Valider le recrutement")
+      .setStyle(ButtonStyle.Success);
+
+    return message.reply({
+      content: `📝 Recrutement en attente :\n\n👤 ${pseudo}\n📛 ${nom}\n💼 ${fonction}`,
+      components: [new ActionRowBuilder().addComponents(bouton)]
+    });
   }
 
- // ===== RECRUTEMENT =====
-if (data[0] === "recrutement") {
+  // ===== LICENCIEMENT =====
+  if (
+    message.channel.name === RH_CHANNEL_NAME &&
+    message.content.startsWith("!licencier")
+  ) {
+    const lignes = message.content.split("\n");
 
-  const [_, pseudo, nom, fonction] = data;
-  const { start, end } = ROLES_CONFIG[fonction];
+    if (lignes.length < 3)
+      return message.reply("Format:\n!licencier\nPseudoDiscord\nFonction");
 
-  try {
+    const pseudo = lignes[1].trim();
+    const fonction = lignes[2].trim();
 
-    // 🔎 On lit colonne E (Nom Prénom)
+    if (!ROLES_CONFIG[fonction])
+      return message.reply("❌ Fonction invalide");
+
+    const bouton = new ButtonBuilder()
+      .setCustomId(`licenciement|${pseudo}|${fonction}`)
+      .setLabel("Valider le licenciement")
+      .setStyle(ButtonStyle.Danger);
+
+    return message.reply({
+      content: `⚠️ Licenciement en attente :\n\n👤 ${pseudo}\n💼 ${fonction}`,
+      components: [new ActionRowBuilder().addComponents(bouton)]
+    });
+  }
+});
+
+// =====================================================
+// 🔘 INTERACTIONS (BOUTONS)
+// =====================================================
+
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isButton()) return;
+
+  const data = interaction.customId.split("|");
+
+  // ===== RECRUTEMENT =====
+  if (data[0] === "recrutement") {
+    const [_, pseudo, nom, fonction] = data;
+    const { start, end } = ROLES_CONFIG[fonction];
+
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: `${RH_SHEET_NAME}!E${start}:E${end}`
@@ -226,14 +222,12 @@ if (data[0] === "recrutement") {
       }
     }
 
-    if (!ligneLibre) {
+    if (!ligneLibre)
       return interaction.reply({
         content: "❌ Plus de place disponible",
         ephemeral: true
       });
-    }
 
-    // ✅ On écrit UNIQUEMENT les cellules nécessaires
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
       range: `${RH_SHEET_NAME}!B${ligneLibre}`,
@@ -259,155 +253,8 @@ if (data[0] === "recrutement") {
       content: `✅ ${nom} recruté en ${fonction}`,
       components: []
     });
-
-  } catch (err) {
-    console.error("Erreur recrutement:", err);
-    await interaction.reply({
-      content: "❌ Erreur recrutement",
-      ephemeral: true
-    });
-  }
-}
-
-  // ================= LICENCIEMENT =================
-  if (
-    message.channel.name === RH_CHANNEL_NAME &&
-    message.content.startsWith("!licencier")
-  ) {
-    const lignes = message.content.split("\n");
-    if (lignes.length < 3)
-      return message.reply(
-        "Format:\n!licencier\nPseudoDiscord\nFonction"
-      );
-
-    const pseudo = lignes[1].trim();
-    const fonction = lignes[2].trim();
-
-    if (!ROLES_CONFIG[fonction])
-      return message.reply("❌ Fonction invalide");
-
-    const bouton = new ButtonBuilder()
-      .setCustomId(`licenciement|${pseudo}|${fonction}`)
-      .setLabel("Valider le licenciement")
-      .setStyle(ButtonStyle.Danger);
-
-    return message.reply({
-      content: `⚠️ Licenciement:\n${pseudo}\n${fonction}`,
-      components: [new ActionRowBuilder().addComponents(bouton)]
-    });
-  }
-});
-
-// =====================================================
-// 🔘 INTERACTIONS RH
-// =====================================================
-
-client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isButton()) return;
-
-  const data = interaction.customId.split("|");
-
-  // ===== RECRUTEMENT =====
-  if (data[0] === "recrutement") {
-    const [_, pseudo, nom, fonction] = data;
-    const { start, end } = ROLES_CONFIG[fonction];
-
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: `${RH_SHEET_NAME}!B${start}:B${end}`
-    });
-
-    const rows = res.data.values || [];
-    let ligneLibre = null;
-
-    for (let i = 0; i <= end - start; i++) {
-      if (!rows[i] || !rows[i][0]) {
-        ligneLibre = start + i;
-        break;
-      }
-    }
-
-    if (!ligneLibre)
-      return interaction.reply({
-        content: "❌ Plus de place disponible",
-        ephemeral: true
-      });
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: `${RH_SHEET_NAME}!B${ligneLibre}:E${ligneLibre}`,
-      valueInputOption: "RAW",
-      requestBody: { values: [[pseudo, "", "", nom]] }
-    });
-
-    await interaction.update({
-      content: `✅ ${nom} recruté en ${fonction}`,
-      components: []
-    });
   }
 
   // ===== LICENCIEMENT =====
   if (data[0] === "licenciement") {
-    const [_, pseudo, fonction] = data;
-    const { start, end } = ROLES_CONFIG[fonction];
 
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: `${RH_SHEET_NAME}!B${start}:B${end}`
-    });
-
-    const rows = res.data.values || [];
-    const index = rows.findIndex((r) => r && r[0] === pseudo);
-
-    if (index === -1)
-      return interaction.reply({
-        content: "❌ Employé introuvable",
-        ephemeral: true
-      });
-
-    const ligne = start + index;
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: `${RH_SHEET_NAME}!B${ligne}:E${ligne}`,
-      valueInputOption: "RAW",
-      requestBody: { values: [["", "", "", ""]] }
-    });
-
-    await interaction.update({
-      content: `❌ ${pseudo} licencié (${fonction})`,
-      components: []
-    });
-  }
-});
-
-// =====================================================
-// 📊 BILAN AUTO DIMANCHE 23H55
-// =====================================================
-
-cron.schedule(
-  "55 23 * * 0",
-  async () => {
-    try {
-      const channel = await client.channels.fetch(
-        process.env.DISCORD_BILAN_CHANNEL_ID
-      );
-      if (!channel) return;
-
-      const bilan = await genererBilan();
-      if (!bilan) return;
-
-      await channel.send(bilan);
-      console.log("📊 Bilan automatique envoyé");
-    } catch (err) {
-      console.error("Erreur bilan auto:", err);
-    }
-  },
-  { timezone: "Europe/Paris" }
-);
-
-// =====================================================
-// 🚀 LOGIN
-// =====================================================
-
-client.login(process.env.DISCORD_TOKEN);
