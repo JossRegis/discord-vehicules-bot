@@ -188,26 +188,28 @@ client.on("interactionCreate", async (interaction) => {
   try {
     const data = interaction.customId.split("|");
 
-    // ===== RECRUTEMENT =====
+// ===== RECRUTEMENT =====
 if (data[0] === "recrutement") {
   const [_, pseudo, nom, fonction] = data;
   const { start, end } = ROLES_CONFIG[fonction];
 
-  // On récupère toute la colonne B complète
+  // On lit UNIQUEMENT la colonne E (NOM)
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${RH_SHEET_NAME}!B:B`
+    range: `${RH_SHEET_NAME}!E${start}:E${end}`
   });
 
-  const allRows = res.data.values || [];
+  const noms = res.data.values || [];
 
   let ligneLibre = null;
 
-  for (let row = start; row <= end; row++) {
-    const cellValue = allRows[row - 1]?.[0];
+  for (let i = 0; i < (end - start + 1); i++) {
+    const rowIndex = start + i;
+    const nomCell = noms[i]?.[0];
 
-    if (!cellValue || cellValue.toString().trim() === "") {
-      ligneLibre = row;
+    // Si colonne E vide → poste libre
+    if (!nomCell || nomCell.toString().trim() === "") {
+      ligneLibre = rowIndex;
       break;
     }
   }
@@ -233,8 +235,7 @@ if (data[0] === "recrutement") {
     components: []
   });
 }
-
-  
+ 
     // ===== LICENCIEMENT =====
     if (data[0] === "licenciement") {
       const [_, pseudo, fonction] = data;
