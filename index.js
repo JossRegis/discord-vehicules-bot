@@ -189,48 +189,52 @@ client.on("interactionCreate", async (interaction) => {
     const data = interaction.customId.split("|");
 
     // ===== RECRUTEMENT =====
-    if (data[0] === "recrutement") {
-      const [_, pseudo, nom, fonction] = data;
-      const { start, end } = ROLES_CONFIG[fonction];
+if (data[0] === "recrutement") {
+  const [_, pseudo, nom, fonction] = data;
+  const { start, end } = ROLES_CONFIG[fonction];
 
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: `${RH_SHEET_NAME}!B${start}:B${end}`,
-        majorDimension: "ROWS"
-      });
+  // On récupère toute la colonne B complète
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${RH_SHEET_NAME}!B:B`
+  });
 
-      const rows = res.data.values || [];
-      let ligneLibre = null;
+  const allRows = res.data.values || [];
 
-      for (let i = 0; i < (end - start + 1); i++) {
-        if (!rows[i] || !rows[i][0] || rows[i][0].trim() === "") {
-          ligneLibre = start + i;
-          break;
-        }
-      }
+  let ligneLibre = null;
 
-      if (!ligneLibre) {
-        return interaction.reply({
-          content: "❌ Plus de place disponible pour ce rôle.",
-          ephemeral: true
-        });
-      }
+  for (let row = start; row <= end; row++) {
+    const cellValue = allRows[row - 1]?.[0];
 
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: `${RH_SHEET_NAME}!B${ligneLibre}:E${ligneLibre}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: {
-          values: [[pseudo, "", fonction, nom]]
-        }
-      });
-
-      return interaction.update({
-        content: `✅ ${nom} recruté en ${fonction}`,
-        components: []
-      });
+    if (!cellValue || cellValue.toString().trim() === "") {
+      ligneLibre = row;
+      break;
     }
+  }
 
+  if (!ligneLibre) {
+    return interaction.reply({
+      content: "❌ Plus de place disponible pour ce rôle.",
+      ephemeral: true
+    });
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${RH_SHEET_NAME}!B${ligneLibre}:E${ligneLibre}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[pseudo, "", fonction, nom]]
+    }
+  });
+
+  return interaction.update({
+    content: `✅ ${nom} recruté en ${fonction}`,
+    components: []
+  });
+}
+
+  
     // ===== LICENCIEMENT =====
     if (data[0] === "licenciement") {
       const [_, pseudo, fonction] = data;
