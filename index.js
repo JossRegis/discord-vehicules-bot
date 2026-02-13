@@ -298,26 +298,67 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
-    // ===== VEHICULE =====  ✅ BON ENDROIT
-    if (data[0] === "vehicule") {
-      const [_, vehicule, plaque, nom] = data;
+// ===== VEHICULE =====
+if (data[0] === "vehicule") {
+  const [_, vehicule, plaque, nom] = data;
 
-      return interaction.update({
-        content: `✅ Véhicule attribué
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `Véhicules!C2:E200`
+  });
+
+  const rows = res.data.values || [];
+  let ligneTrouvee = null;
+
+for (let i = 0; i < rows.length; i++) {
+  const row = rows[i];
+
+  const vehiculeSheet = row[0]?.toString().trim();
+  const plaqueSheet = row[1]?.toString().trim();
+  const attribueA = row[2]?.toString().trim();
+
+  if (
+    vehiculeSheet?.toLowerCase() === vehicule.toLowerCase().trim() &&
+    plaqueSheet?.toLowerCase() === plaque.toLowerCase().trim() &&
+    attribueA?.toLowerCase() === "libre"
+  ) {
+    ligneTrouvee = i + 2;
+    break;
+  }
+}
+
+
+  if (!ligneTrouvee) {
+    return interaction.reply({
+      content: "❌ Véhicule introuvable ou déjà attribué.",
+      ephemeral: true
+    });
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Véhicules!E${ligneTrouvee}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[nom]]
+    }
+  });
+
+  return interaction.update({
+    content: `✅ Véhicule attribué avec succès
 
 🚗 Véhicule : ${vehicule}
 🪪 Immatriculation : ${plaque}
 👤 Attribué à : ${nom}`,
-        components: []
-      });
-    }
-
-  } catch (err) {
-    console.error("Erreur interaction:", err);
+    components: []
+  });
+}
+  } catch (error) {
+    console.error("Erreur interaction :", error);
 
     if (!interaction.replied && !interaction.deferred) {
-      return interaction.reply({
-        content: "❌ Erreur système.",
+      await interaction.reply({
+        content: "❌ Une erreur est survenue.",
         ephemeral: true
       });
     }
