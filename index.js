@@ -178,6 +178,33 @@ client.on("messageCreate", async (message) => {
   }
 });
 
+  // ===== VEHICULE =====
+  if (message.content.startsWith("!vehicule")) {
+    const lignes = message.content.split("\n");
+    if (lignes.length < 4)
+      return message.reply(
+        "Format:\n!vehicule\nNom du véhicule\nImmatriculation\nNom de la personne"
+      );
+
+    const vehicule = lignes[1].trim();
+    const plaque = lignes[2].trim();
+    const nom = lignes[3].trim();
+
+    const bouton = new ButtonBuilder()
+      .setCustomId(`vehicule|${vehicule}|${plaque}|${nom}`)
+      .setLabel("Valider l'attribution")
+      .setStyle(ButtonStyle.Primary);
+
+    return message.reply({
+      content: `🚗 **Demande d'attribution véhicule**
+
+**Véhicule :** ${vehicule}
+**Immatriculation :** ${plaque}
+**Nom de la personne :** ${nom}`,
+      components: [new ActionRowBuilder().addComponents(bouton)]
+    });
+  }
+
 // =====================================================
 // 🔘 INTERACTIONS
 // =====================================================
@@ -188,54 +215,51 @@ client.on("interactionCreate", async (interaction) => {
   try {
     const data = interaction.customId.split("|");
 
-// ===== RECRUTEMENT =====
-if (data[0] === "recrutement") {
-  const [_, pseudo, nom, fonction] = data;
-  const { start, end } = ROLES_CONFIG[fonction];
+    // ===== RECRUTEMENT =====
+    if (data[0] === "recrutement") {
+      const [_, pseudo, nom, fonction] = data;
+      const { start, end } = ROLES_CONFIG[fonction];
 
-  // On lit UNIQUEMENT la colonne E (NOM)
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `${RH_SHEET_NAME}!E${start}:E${end}`
-  });
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `${RH_SHEET_NAME}!E${start}:E${end}`
+      });
 
-  const noms = res.data.values || [];
+      const noms = res.data.values || [];
+      let ligneLibre = null;
 
-  let ligneLibre = null;
+      for (let i = 0; i < (end - start + 1); i++) {
+        const rowIndex = start + i;
+        const nomCell = noms[i]?.[0];
 
-  for (let i = 0; i < (end - start + 1); i++) {
-    const rowIndex = start + i;
-    const nomCell = noms[i]?.[0];
+        if (!nomCell || nomCell.toString().trim() === "") {
+          ligneLibre = rowIndex;
+          break;
+        }
+      }
 
-    // Si colonne E vide → poste libre
-    if (!nomCell || nomCell.toString().trim() === "") {
-      ligneLibre = rowIndex;
-      break;
+      if (!ligneLibre) {
+        return interaction.reply({
+          content: "❌ Plus de place disponible pour ce rôle.",
+          ephemeral: true
+        });
+      }
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `${RH_SHEET_NAME}!B${ligneLibre}:E${ligneLibre}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [[pseudo, "", fonction, nom]]
+        }
+      });
+
+      return interaction.update({
+        content: `✅ ${nom} recruté en ${fonction}`,
+        components: []
+      });
     }
-  }
 
-  if (!ligneLibre) {
-    return interaction.reply({
-      content: "❌ Plus de place disponible pour ce rôle.",
-      ephemeral: true
-    });
-  }
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SHEET_ID,
-    range: `${RH_SHEET_NAME}!B${ligneLibre}:E${ligneLibre}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [[pseudo, "", fonction, nom]]
-    }
-  });
-
-  return interaction.update({
-    content: `✅ ${nom} recruté en ${fonction}`,
-    components: []
-  });
-}
- 
     // ===== LICENCIEMENT =====
     if (data[0] === "licenciement") {
       const [_, pseudo, fonction] = data;
@@ -274,6 +298,20 @@ if (data[0] === "recrutement") {
       });
     }
 
+    // ===== VEHICULE =====  ✅ BON ENDROIT
+    if (data[0] === "vehicule") {
+      const [_, vehicule, plaque, nom] = data;
+
+      return interaction.update({
+        content: `✅ Véhicule attribué
+
+🚗 Véhicule : ${vehicule}
+🪪 Immatriculation : ${plaque}
+👤 Attribué à : ${nom}`,
+        components: []
+      });
+    }
+
   } catch (err) {
     console.error("Erreur interaction:", err);
 
@@ -285,7 +323,6 @@ if (data[0] === "recrutement") {
     }
   }
 });
-
 
 // =====================================================
 // 🚀 LOGIN
