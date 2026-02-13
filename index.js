@@ -181,6 +181,7 @@ client.on("messageCreate", async (message) => {
 // =====================================================
 // 🔘 INTERACTIONS
 // =====================================================
+
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isButton()) return;
 
@@ -280,47 +281,6 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-    // ===== LICENCIEMENT =====
-    if (data[0] === "licenciement") {
-      const [_, pseudo, fonction] = data;
-      const { start, end } = ROLES_CONFIG[fonction];
-
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: `${RH_SHEET_NAME}!B${start}:B${end}`
-      });
-
-      const rows = res.data.values || [];
-      let ligne = null;
-
-      for (let i = 0; i < rows.length; i++) {
-        if (rows[i][0] === pseudo) {
-          ligne = start + i;
-          break;
-        }
-      }
-
-      if (!ligne)
-        return interaction.reply({ content: "❌ Employé introuvable", ephemeral: true });
-
-      await sheets.spreadsheets.values.clear({
-        spreadsheetId: SHEET_ID,
-        range: `${RH_SHEET_NAME}!B${ligne}:E${ligne}`
-      });
-
-      return interaction.update({
-        content: `🚨 ${pseudo} licencié (${fonction})`,
-        components: []
-      });
-    }
-  } catch (err) {
-    console.error("Erreur interaction:", err);
-    return interaction.reply({
-      content: "❌ Erreur système",
-      ephemeral: true
-    });
-  }
-});
 
 // =====================================================
 // 🚀 LOGIN
