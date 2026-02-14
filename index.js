@@ -201,6 +201,71 @@ if (message.content.toLowerCase() === "!listevehicules") {
     components: components.slice(0, 5) // Discord limite à 5 rows
   });
 }
+  // ==========================
+// 📋 LISTE COMPLETE VEHICULES
+// ==========================
+if (message.content.toLowerCase() === "!listevehicules") {
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `Véhicules!C2:E200`
+  });
+
+  const rows = res.data.values || [];
+
+  const embed = new EmbedBuilder()
+    .setTitle("🚗 Liste des véhicules")
+    .setColor("Blue");
+
+  const components = [];
+
+  let compteurBoutons = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+
+    const vehicule = rows[i]?.[0];
+    const plaque = rows[i]?.[1];
+    const statut = rows[i]?.[2] || "Libre";
+
+    if (!vehicule) continue;
+
+    if (statut.toLowerCase() === "libre") {
+
+      embed.addFields({
+        name: `🟢 ${vehicule} | ${plaque}`,
+        value: `Statut : Libre`,
+        inline: false
+      });
+
+    } else {
+
+      embed.addFields({
+        name: `🔴 ${vehicule} | ${plaque}`,
+        value: `Attribué à : ${statut}`,
+        inline: false
+      });
+
+      // Max 5 boutons (limite Discord)
+      if (compteurBoutons < 5) {
+        const bouton = new ButtonBuilder()
+          .setCustomId(`liberer_${i + 2}`)
+          .setLabel(`🔓 Libérer ${plaque}`)
+          .setStyle(ButtonStyle.Danger);
+
+        components.push(
+          new ActionRowBuilder().addComponents(bouton)
+        );
+
+        compteurBoutons++;
+      }
+    }
+  }
+
+  return message.reply({
+    embeds: [embed],
+    components: components
+  });
+}
 
   // ==========================
   // 🚗 ATTRIBUER VEHICULE
