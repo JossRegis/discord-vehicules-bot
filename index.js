@@ -27,12 +27,12 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-if (!process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
-  console.error("❌ Variables Google manquantes");
+// ================= GOOGLE AUTH =================
+
+if (!process.env.GOOGLE_CREDENTIALS) {
+  console.error("❌ GOOGLE_CREDENTIALS manquant");
   process.exit(1);
 }
-
-// ================= GOOGLE AUTH =================
 
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 
