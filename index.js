@@ -166,48 +166,74 @@ client.on("messageCreate", async (message) => {
     }
   }
 
-  // ==========================
-  // 📌 RECRUTEMENT
-  // ==========================
-  if (message.content.startsWith("!recruter")) {
-    const lignes = message.content.split("\n");
-    if (lignes.length < 3)
-      return message.reply("Format:\n!recruter\nNom\nRôle exact");
+ // ==========================
+// 📌 RECRUTEMENT
+// ==========================
+if (message.content.toLowerCase().startsWith("!recruter")) {
 
-    const nom = lignes[1].trim();
-    const role = lignes[2].trim();
+  const lignes = message.content
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l => l !== "");
 
-    if (!ROLES_CONFIG[role]) return message.reply("❌ Rôle invalide.");
+  if (lignes.length < 4)
+    return message.reply(
+      "Format:\n!recruter\nPseudo Discord\nPrénom Nom\nGrade"
+    );
 
-    const { start, end } = ROLES_CONFIG[role];
+  const pseudoDiscord = lignes[1];
+  const prenomNom = lignes[2];
+  const gradeInput = lignes[3];
 
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: `${RH_SHEET_NAME}!B${start}:B${end}`
-    });
+  // 🔎 Recherche du rôle insensible à la casse
+  const roleKey = Object.keys(ROLES_CONFIG)
+    .find(r => r.toLowerCase() === gradeInput.toLowerCase());
 
-    const rows = res.data.values || [];
-    let ligneLibre = null;
+  if (!roleKey)
+    return message.reply("❌ Grade invalide.");
 
-    for (let i = 0; i <= end - start; i++) {
-      if (!rows[i] || !rows[i][0]) {
-        ligneLibre = start + i;
-        break;
-      }
+  const { start, end } = ROLES_CONFIG[roleKey];
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${RH_SHEET_NAME}!B${start}:D${end}`
+  });
+
+  const rows = res.data.values || [];
+  let ligneLibre = null;
+
+  for (let i = 0; i <= end - start; i++) {
+    if (!rows[i] || !rows[i][0]) {
+      ligneLibre = start + i;
+      break;
     }
-
-    if (!ligneLibre)
-      return message.reply("❌ Plus de place disponible.");
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: `${RH_SHEET_NAME}!B${ligneLibre}`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[nom]] }
-    });
-
-    return message.reply(`✅ ${nom} recruté en ${role}.`);
   }
+
+  if (!ligneLibre)
+    return message.reply("❌ Plus de place disponible pour ce grade.");
+
+  // 👉 On enregistre :
+  // Colonne B = pseudo discord
+  // Colonne C = prénom nom
+  // Colonne D = grade
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${RH_SHEET_NAME}!B${ligneLibre}:D${ligneLibre}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[pseudoDiscord, prenomNom, roleKey]]
+    }
+  });
+
+  return message.reply(
+    `✅ Recrutement validé !
+
+👤 Discord : ${pseudoDiscord}
+📛 Nom : ${prenomNom}
+🎖 Grade : ${roleKey}`
+  );
+}
 
   // ==========================
   // 📌 LICENCIEMENT
