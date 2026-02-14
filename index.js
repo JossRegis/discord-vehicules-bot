@@ -238,6 +238,51 @@ Attribué à : ${nom}`,
       components: attribues.length ? [rowButtons] : []
     });
   }
+  
+// ===== LIBERER VEHICULE =====
+if (message.content.startsWith("!liberer")) {
+  const lignes = message.content.split("\n");
+
+  if (lignes.length < 3) {
+    return message.reply("❌ Format incorrect.\n\nUtilise :\n!liberer\nNom du véhicule\nImmatriculation");
+  }
+
+  const vehicule = lignes[1].trim();
+  const plaque = lignes[2].trim();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `Véhicules!C2:E100`
+  });
+
+  const rows = res.data.values || [];
+  let ligneTrouvee = null;
+
+  for (let i = 0; i < rows.length; i++) {
+    const nomVehicule = rows[i][0];
+    const immatriculation = rows[i][1];
+
+    if (nomVehicule === vehicule && immatriculation === plaque) {
+      ligneTrouvee = i + 2;
+      break;
+    }
+  }
+
+  if (!ligneTrouvee) {
+    return message.reply("❌ Véhicule introuvable.");
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `Véhicules!E${ligneTrouvee}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [["Libre"]]
+    }
+  });
+
+  message.reply(`🚗 Véhicule libéré : ${vehicule} (${plaque})`);
+}
 
   // ================= TEST BILAN =================
   if (message.content === "!testbilan") {
