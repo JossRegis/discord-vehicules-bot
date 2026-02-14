@@ -153,7 +153,7 @@ client.on("messageCreate", async (message) => {
   // ==========================
   // 🚗 ATTRIBUER VEHICULE
   // ==========================
-  if (message.content.toLowerCase().startsWith("!attribuer")) {
+  if (message.content.toLowerCase().startsWith("!vehicule")) {
 
     const lignes = message.content
       .split("\n")
@@ -162,7 +162,7 @@ client.on("messageCreate", async (message) => {
 
     if (lignes.length < 4)
       return message.reply(
-        "Format:\n!attribuer\nNomVehicule\nPlaque\nPseudoDiscord"
+        "Format:\n!vehicule\nNomVehicule\nPlaque\nPseudoDiscord"
       );
 
     const vehicule = lignes[1];
