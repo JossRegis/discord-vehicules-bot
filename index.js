@@ -2,18 +2,11 @@ const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle 
 const { google } = require("googleapis");
 const cron = require("node-cron");
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
-});
-
 // ================= CONFIG =================
 
-const SHEET_ID = process.env.SHEET_ID;
 const TOKEN = process.env.DISCORD_TOKEN;
+const SHEET_ID = process.env.SHEET_ID;
+
 const BILAN_CHANNEL_NAME = "bilan-semaine";
 
 const RH_SHEET_NAME = "Comptabilité Général";
@@ -27,35 +20,54 @@ const ROLES_CONFIG = {
   "Vendeur": { start: 17, end: 24 }
 };
 
+// ================= VERIFICATION =================
+
+if (!TOKEN) {
+  console.error("❌ DISCORD_TOKEN manquant");
+  process.exit(1);
+}
+
+if (!process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
+  console.error("❌ Variables Google manquantes");
+  process.exit(1);
+}
+
 // ================= GOOGLE AUTH =================
 
 const auth = new google.auth.GoogleAuth({
   credentials: {
-    client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    private_key: process.env.GOOGLE_PRIVATE_KEY
-  ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n")
-  : ""
-
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+    client_email: process.env.GOOGLE_CLIENT_EMAIL,
+    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+  },
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
-const sheets = google.sheets({ version: "v4", auth });
+const sheets = google.sheets({
+  version: "v4",
+  auth
+});
 
-// ================= READY =================
+// ================= DISCORD CLIENT =================
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
+});
 
 client.once("ready", () => {
-  console.log(`Connecté en tant que ${client.user.tag}`);
+  console.log(`✅ Connecté en tant que ${client.user.tag}`);
 });
 
-// ================= MESSAGE =================
+// ================= COMMANDES =================
 
 client.on("messageCreate", async (message) => {
 
   if (message.author.bot) return;
 
-  // ==========================
-  // 👥 RECRUTER
-  // ==========================
+  // ================= RECRUTER =================
   if (message.content.startsWith("!recruter")) {
 
     const lignes = message.content.split("\n").map(l => l.trim()).filter(Boolean);
@@ -89,8 +101,7 @@ client.on("messageCreate", async (message) => {
 
     for (let i = 0; i <= (plage.end - plage.start); i++) {
       const row = rows[i] || [];
-      const celluleNom = row[3];
-      if (!celluleNom || celluleNom === "") {
+      if (!row[3]) {
         ligneLibre = plage.start + i;
         break;
       }
@@ -111,9 +122,7 @@ client.on("messageCreate", async (message) => {
     return message.reply(`✅ ${prenomNom} recruté en ${grade}`);
   }
 
-  // ==========================
-  // ❌ LICENCIER
-  // ==========================
+  // ================= LICENCIER =================
   if (message.content.startsWith("!licencier")) {
 
     const lignes = message.content.split("\n").map(l => l.trim()).filter(Boolean);
@@ -152,9 +161,7 @@ client.on("messageCreate", async (message) => {
     return message.reply(`❌ ${prenomNom} licencié.`);
   }
 
-  // ==========================
-  // 🚗 LISTE VEHICULES
-  // ==========================
+  // ================= LISTE VEHICULES =================
   if (message.content === "!listevehicules") {
 
     const res = await sheets.spreadsheets.values.get({
@@ -163,7 +170,6 @@ client.on("messageCreate", async (message) => {
     });
 
     const rows = res.data.values || [];
-
     const libres = [];
     const attribues = [];
 
@@ -175,7 +181,7 @@ client.on("messageCreate", async (message) => {
 
       if (statut === "Libre")
         libres.push(`🚗 ${nom}`);
-      else
+      else if (statut === "Attribué")
         attribues.push({ texte: `🔒 ${nom} → ${utilisateur}`, ligne });
     });
 
@@ -191,7 +197,7 @@ client.on("messageCreate", async (message) => {
       rowButtons.addComponents(
         new ButtonBuilder()
           .setCustomId(`liberer_${v.ligne}`)
-          .setLabel(`Libérer ${v.ligne}`)
+          .setLabel("Libérer")
           .setStyle(ButtonStyle.Danger)
       );
     });
@@ -202,18 +208,14 @@ client.on("messageCreate", async (message) => {
     });
   }
 
-  // ==========================
-  // 📊 TEST BILAN
-  // ==========================
+  // ================= TEST BILAN =================
   if (message.content === "!testbilan") {
     await envoyerBilan(message.channel);
   }
 
 });
 
-// ==========================
-/* 🎯 BOUTON LIBERER */
-// ==========================
+// ================= BOUTON LIBERER =================
 
 client.on("interactionCreate", async (interaction) => {
 
@@ -236,9 +238,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-// ==========================
-// 📊 FONCTION BILAN
-// ==========================
+// ================= FONCTION BILAN =================
 
 async function envoyerBilan(channel) {
 
@@ -249,11 +249,15 @@ async function envoyerBilan(channel) {
 
   const values = res.data.values;
 
-  const totalCA = values[0][0];
-  const totalDepense = values[0][4];
-  const benefAvant = values[7][3];
-  const taxe = values[8][3];
-  const benefNet = values[9][3];
+  if (!values) {
+    return channel.send("❌ Impossible de récupérer le bilan.");
+  }
+
+  const totalCA = values[0]?.[0] || "0";
+  const totalDepense = values[0]?.[4] || "0";
+  const benefAvant = values[7]?.[3] || "0";
+  const taxe = values[8]?.[3] || "0";
+  const benefNet = values[9]?.[3] || "0";
 
   const message = `
 📊 **Bilan Hebdomadaire**
@@ -266,20 +270,18 @@ async function envoyerBilan(channel) {
 💎 Bénéfice Net : ${benefNet}
 `;
 
-  channel.send(message);
+  await channel.send(message);
 }
 
-// ==========================
-// ⏰ CRON DIMANCHE 23H55
-// ==========================
+// ================= CRON DIMANCHE 23H55 =================
 
 cron.schedule("55 23 * * 0", async () => {
 
-  const guilds = client.guilds.cache;
+  client.guilds.cache.forEach(async guild => {
 
-  guilds.forEach(async guild => {
-
-    const channel = guild.channels.cache.find(c => c.name === BILAN_CHANNEL_NAME);
+    const channel = guild.channels.cache.find(
+      c => c.name === BILAN_CHANNEL_NAME
+    );
 
     if (channel) {
       await envoyerBilan(channel);
