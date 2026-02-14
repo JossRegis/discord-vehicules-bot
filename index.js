@@ -34,11 +34,10 @@ if (!process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
 
 // ================= GOOGLE AUTH =================
 
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+
 const auth = new google.auth.GoogleAuth({
-  credentials: {
-    client_email: process.env.GOOGLE_CLIENT_EMAIL,
-    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-  },
+  credentials: credentials,
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
@@ -46,6 +45,7 @@ const sheets = google.sheets({
   version: "v4",
   auth
 });
+
 
 // ================= DISCORD CLIENT =================
 
