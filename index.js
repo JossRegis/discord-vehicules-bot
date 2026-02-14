@@ -166,7 +166,7 @@ client.on("messageCreate", async (message) => {
     }
   }
 
- // ==========================
+// ==========================
 // 📌 RECRUTEMENT
 // ==========================
 if (message.content.toLowerCase().startsWith("!recruter")) {
@@ -185,7 +185,7 @@ if (message.content.toLowerCase().startsWith("!recruter")) {
   const prenomNom = lignes[2];
   const gradeInput = lignes[3];
 
-  // 🔎 Recherche du rôle insensible à la casse
+  // 🔎 Recherche du grade insensible à la casse
   const roleKey = Object.keys(ROLES_CONFIG)
     .find(r => r.toLowerCase() === gradeInput.toLowerCase());
 
@@ -194,16 +194,22 @@ if (message.content.toLowerCase().startsWith("!recruter")) {
 
   const { start, end } = ROLES_CONFIG[roleKey];
 
+  // 🔎 Lecture colonnes B → E
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${RH_SHEET_NAME}!B${start}:D${end}`
+    range: `${RH_SHEET_NAME}!B${start}:E${end}`
   });
 
   const rows = res.data.values || [];
   let ligneLibre = null;
 
   for (let i = 0; i <= end - start; i++) {
-    if (!rows[i] || !rows[i][0]) {
+
+    const colB = rows[i]?.[0]; // colonne B
+    const colE = rows[i]?.[3]; // colonne E
+
+    // ✅ ligne libre uniquement si B ET E sont vides
+    if (!colB && !colE) {
       ligneLibre = start + i;
       break;
     }
@@ -212,27 +218,40 @@ if (message.content.toLowerCase().startsWith("!recruter")) {
   if (!ligneLibre)
     return message.reply("❌ Plus de place disponible pour ce grade.");
 
-  // 👉 On enregistre :
-  // Colonne B = pseudo discord
-  // Colonne C = prénom nom
-  // Colonne D = grade
+  try {
 
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SHEET_ID,
-    range: `${RH_SHEET_NAME}!B${ligneLibre}:D${ligneLibre}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [[pseudoDiscord, prenomNom, roleKey]]
-    }
-  });
+    // 👉 Colonne B = pseudo discord
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${RH_SHEET_NAME}!B${ligneLibre}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[pseudoDiscord]]
+      }
+    });
 
-  return message.reply(
-    `✅ Recrutement validé !
+    // 👉 Colonne E = prénom nom
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${RH_SHEET_NAME}!E${ligneLibre}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[prenomNom]]
+      }
+    });
+
+    return message.reply(
+      `✅ Recrutement validé !
 
 👤 Discord : ${pseudoDiscord}
 📛 Nom : ${prenomNom}
 🎖 Grade : ${roleKey}`
-  );
+    );
+
+  } catch (error) {
+    console.error("Erreur recrutement :", error);
+    return message.reply("❌ Erreur lors du recrutement.");
+  }
 }
 
   // ==========================
