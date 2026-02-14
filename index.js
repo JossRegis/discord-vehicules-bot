@@ -52,15 +52,13 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: "v4", auth });
 
 // =====================================================
-// 📅 READY + CRON AUTOMATIQUE
+// 📅 READY + CRON
 // =====================================================
 
 client.once("ready", async () => {
   console.log(`🤖 Connecté en tant que ${client.user.tag}`);
 
   cron.schedule("55 23 * * 0", async () => {
-    console.log("⏰ Génération automatique du bilan...");
-
     try {
       const res = await sheets.spreadsheets.values.batchGet({
         spreadsheetId: SHEET_ID,
@@ -73,32 +71,22 @@ client.once("ready", async () => {
         ]
       });
 
-      const values = res.data.valueRanges;
-
-      const totalCA = values[0].values?.[0]?.[0] || "0";
-      const totalDepenses = values[1].values?.[0]?.[0] || "0";
-      const benefAvant = values[2].values?.[0]?.[0] || "0";
-      const taxe = values[3].values?.[0]?.[0] || "0";
-      const benefNet = values[4].values?.[0]?.[0] || "0";
+      const v = res.data.valueRanges;
 
       const channel = client.channels.cache.find(
         ch => ch.name === "bilan-semaine"
       );
 
-      if (!channel) return console.log("Salon bilan-semaine introuvable.");
+      if (!channel) return;
 
       await channel.send(`📊 **BILAN HEBDOMADAIRE AUTOMATIQUE**
 
-🟢 CA : ${totalCA}
-🔴 Dépenses : ${totalDepenses}
+🟢 CA : ${v[0].values?.[0]?.[0] || 0}
+🔴 Dépenses : ${v[1].values?.[0]?.[0] || 0}
+💰 Avant taxe : ${v[2].values?.[0]?.[0] || 0}
+🏛 Taxe : ${v[3].values?.[0]?.[0] || 0}
+🏆 Net : ${v[4].values?.[0]?.[0] || 0}`);
 
-💰 Avant taxe : ${benefAvant}
-🏛 Taxe (30%) : ${taxe}
-🏆 Net : ${benefNet}
-
-📅 Généré automatiquement`);
-
-      console.log("✅ Bilan envoyé.");
     } catch (error) {
       console.error("Erreur bilan automatique :", error);
     }
@@ -119,8 +107,8 @@ async function genererListeVehicules() {
   let disponibles = [];
 
   for (let row of rows) {
-    const attribueA = row[2]?.toString().trim().toLowerCase();
-    if (attribueA === "libre") {
+    const statut = row[2]?.toString().trim().toLowerCase();
+    if (statut === "libre") {
       disponibles.push(`🚗 ${row[0]} — ${row[1]}`);
     }
   }
@@ -140,189 +128,132 @@ client.on("messageCreate", async (message) => {
   // 📊 TEST BILAN
   // ==========================
   if (message.content === "!testbilan") {
-    try {
-      const res = await sheets.spreadsheets.values.batchGet({
-        spreadsheetId: SHEET_ID,
-        ranges: [
-          `${BILAN_SHEET_NAME}!F32`,
-          `${BILAN_SHEET_NAME}!J32`,
-          `${BILAN_SHEET_NAME}!I39`,
-          `${BILAN_SHEET_NAME}!I40`,
-          `${BILAN_SHEET_NAME}!I41`
-        ]
-      });
+    const res = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId: SHEET_ID,
+      ranges: [
+        `${BILAN_SHEET_NAME}!F32`,
+        `${BILAN_SHEET_NAME}!J32`,
+        `${BILAN_SHEET_NAME}!I39`,
+        `${BILAN_SHEET_NAME}!I40`,
+        `${BILAN_SHEET_NAME}!I41`
+      ]
+    });
 
-      const v = res.data.valueRanges;
+    const v = res.data.valueRanges;
 
-      return message.reply(`📊 **BILAN HEBDOMADAIRE**
+    return message.reply(`📊 **BILAN HEBDOMADAIRE**
 
 🟢 CA : ${v[0].values?.[0]?.[0] || 0}
 🔴 Dépenses : ${v[1].values?.[0]?.[0] || 0}
 💰 Avant taxe : ${v[2].values?.[0]?.[0] || 0}
 🏛 Taxe : ${v[3].values?.[0]?.[0] || 0}
 🏆 Net : ${v[4].values?.[0]?.[0] || 0}`);
-    } catch {
-      return message.reply("❌ Erreur lecture feuille.");
-    }
   }
-
-// ==========================
-// 📌 RECRUTEMENT
-// ==========================
-if (message.content.toLowerCase().startsWith("!recruter")) {
-
-  const lignes = message.content
-    .split("\n")
-    .map(l => l.trim())
-    .filter(l => l !== "");
-
-  if (lignes.length < 4)
-    return message.reply(
-      "Format:\n!recruter\nPseudo Discord\nPrénom Nom\nGrade"
-    );
-
-  const pseudoDiscord = lignes[1];
-  const prenomNom = lignes[2];
-  const gradeInput = lignes[3];
-
-  // 🔎 Recherche du grade insensible à la casse
-  const roleKey = Object.keys(ROLES_CONFIG)
-    .find(r => r.toLowerCase() === gradeInput.toLowerCase());
-
-  if (!roleKey)
-    return message.reply("❌ Grade invalide.");
-
-  const { start, end } = ROLES_CONFIG[roleKey];
-
-  // 🔎 Lecture colonnes B → E
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `${RH_SHEET_NAME}!B${start}:E${end}`
-  });
-
-  const rows = res.data.values || [];
-  let ligneLibre = null;
-
-  for (let i = 0; i <= end - start; i++) {
-
-    const colB = rows[i]?.[0]; // colonne B
-    const colE = rows[i]?.[3]; // colonne E
-
-    // ✅ ligne libre uniquement si B ET E sont vides
-    if (!colB && !colE) {
-      ligneLibre = start + i;
-      break;
-    }
-  }
-
-  if (!ligneLibre)
-    return message.reply("❌ Plus de place disponible pour ce grade.");
-
-  try {
-
-    // 👉 Colonne B = pseudo discord
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: `${RH_SHEET_NAME}!B${ligneLibre}`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [[pseudoDiscord]]
-      }
-    });
-
-    // 👉 Colonne E = prénom nom
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: `${RH_SHEET_NAME}!E${ligneLibre}`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [[prenomNom]]
-      }
-    });
-
-    return message.reply(
-      `✅ Recrutement validé !
-
-👤 Discord : ${pseudoDiscord}
-📛 Nom : ${prenomNom}
-🎖 Grade : ${roleKey}`
-    );
-
-  } catch (error) {
-    console.error("Erreur recrutement :", error);
-    return message.reply("❌ Erreur lors du recrutement.");
-  }
-}
 
   // ==========================
-  // 📌 LICENCIEMENT
+  // 🚗 ATTRIBUER VEHICULE
   // ==========================
-  if (message.content.startsWith("!licenciement")) {
-    const lignes = message.content.split("\n");
-    if (lignes.length < 3)
-      return message.reply("Format:\n!licenciement\nNom\nRôle exact");
+  if (message.content.toLowerCase().startsWith("!attribuer")) {
 
-    const nom = lignes[1].trim();
-    const role = lignes[2].trim();
+    const lignes = message.content
+      .split("\n")
+      .map(l => l.trim())
+      .filter(l => l !== "");
 
-    if (!ROLES_CONFIG[role]) return message.reply("❌ Rôle invalide.");
+    if (lignes.length < 4)
+      return message.reply(
+        "Format:\n!attribuer\nNomVehicule\nPlaque\nPseudoDiscord"
+      );
 
-    const { start, end } = ROLES_CONFIG[role];
+    const vehicule = lignes[1];
+    const plaque = lignes[2];
+    const pseudo = lignes[3];
 
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `${RH_SHEET_NAME}!B${start}:B${end}`
+      range: `${VEHICULE_SHEET_NAME}!C2:E200`
     });
 
     const rows = res.data.values || [];
     let ligneTrouvee = null;
 
     for (let i = 0; i < rows.length; i++) {
-      if (rows[i][0]?.toLowerCase() === nom.toLowerCase()) {
-        ligneTrouvee = start + i;
+      const v = rows[i]?.[0];
+      const p = rows[i]?.[1];
+      const statut = rows[i]?.[2];
+
+      if (
+        v?.toLowerCase() === vehicule.toLowerCase() &&
+        p?.toLowerCase() === plaque.toLowerCase() &&
+        statut?.toLowerCase() === "libre"
+      ) {
+        ligneTrouvee = i + 2;
         break;
       }
     }
 
     if (!ligneTrouvee)
-      return message.reply("❌ Employé introuvable.");
+      return message.reply("❌ Véhicule introuvable ou déjà attribué.");
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `${RH_SHEET_NAME}!B${ligneTrouvee}`,
+      range: `${VEHICULE_SHEET_NAME}!E${ligneTrouvee}`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[""]] }
+      requestBody: { values: [[pseudo]] }
     });
 
-    return message.reply(`🔴 ${nom} licencié (${role}).`);
+    const bouton = new ButtonBuilder()
+      .setCustomId(`liberer_${ligneTrouvee}`)
+      .setLabel("🔓 Libérer")
+      .setStyle(ButtonStyle.Danger);
+
+    const row = new ActionRowBuilder().addComponents(bouton);
+
+    return message.reply({
+      content: `🚗 **Véhicule attribué**
+
+Véhicule : ${vehicule}
+Plaque : ${plaque}
+Attribué à : ${pseudo}`,
+      components: [row]
+    });
   }
 
   // ==========================
-  // 📌 BILAN RH
+  // 📋 LISTE VEHICULES
   // ==========================
-  if (message.content === "!bilan") {
-    let recap = "📊 **Bilan RH actuel**\n\n";
-
-    for (const role in ROLES_CONFIG) {
-      const { start, end } = ROLES_CONFIG[role];
-
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: `${RH_SHEET_NAME}!B${start}:B${end}`
-      });
-
-      const rows = res.data.values || [];
-      const total = rows.filter(r => r[0]).length;
-
-      recap += `👔 ${role} : ${total}\n`;
-    }
-
-    return message.reply(recap);
-  }
-
   if (message.content === "!vehicules") {
     const liste = await genererListeVehicules();
     return message.reply(liste);
+  }
+});
+
+// =====================================================
+// 🔘 BOUTON LIBERER
+// =====================================================
+
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isButton()) return;
+
+  if (interaction.customId.startsWith("liberer_")) {
+
+    const ligne = interaction.customId.split("_")[1];
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${VEHICULE_SHEET_NAME}!E${ligne}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [["Libre"]] }
+    });
+
+    const liste = await genererListeVehicules();
+
+    return interaction.update({
+      content: `🔓 Véhicule libéré avec succès !
+
+${liste}`,
+      components: []
+    });
   }
 });
 
