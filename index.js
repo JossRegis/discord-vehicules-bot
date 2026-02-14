@@ -149,6 +149,58 @@ client.on("messageCreate", async (message) => {
 🏛 Taxe : ${v[3].values?.[0]?.[0] || 0}
 🏆 Net : ${v[4].values?.[0]?.[0] || 0}`);
   }
+  
+// ==========================
+// 📋 LISTE VEHICULES ATTRIBUÉS
+// ==========================
+if (message.content.toLowerCase() === "!listevehicules") {
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${VEHICULE_SHEET_NAME}!C2:E200`
+  });
+
+  const rows = res.data.values || [];
+
+  const embed = new EmbedBuilder()
+    .setTitle("🚗 Véhicules attribués")
+    .setColor("Red");
+
+  const components = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const vehicule = rows[i]?.[0];
+    const plaque = rows[i]?.[1];
+    const statut = rows[i]?.[2];
+
+    if (statut && statut.toLowerCase() !== "libre") {
+
+      embed.addFields({
+        name: `${vehicule} | ${plaque}`,
+        value: `Attribué à : ${statut}`,
+        inline: false
+      });
+
+      const bouton = new ButtonBuilder()
+        .setCustomId(`liberer_${i + 2}`)
+        .setLabel(`🔓 Libérer ${vehicule}`)
+        .setStyle(ButtonStyle.Danger);
+
+      components.push(
+        new ActionRowBuilder().addComponents(bouton)
+      );
+    }
+  }
+
+  if (embed.data.fields?.length === 0) {
+    return message.reply("✅ Aucun véhicule attribué.");
+  }
+
+  return message.reply({
+    embeds: [embed],
+    components: components.slice(0, 5) // Discord limite à 5 rows
+  });
+}
 
   // ==========================
   // 🚗 ATTRIBUER VEHICULE
@@ -246,12 +298,9 @@ client.on("interactionCreate", async (interaction) => {
       requestBody: { values: [["Libre"]] }
     });
 
-    const liste = await genererListeVehicules();
-
-    return interaction.update({
-      content: `🔓 Véhicule libéré avec succès !
-
-${liste}`,
+    await interaction.update({
+      content: "🔓 Véhicule libéré avec succès.",
+      embeds: [],
       components: []
     });
   }
