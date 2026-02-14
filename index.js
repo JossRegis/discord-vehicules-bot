@@ -20,24 +20,24 @@ const ROLES_CONFIG = {
   "Vendeur": { start: 17, end: 24 }
 };
 
-// ================= VERIFICATION =================
+// ================= VERIFICATIONS =================
 
 if (!TOKEN) {
   console.error("❌ DISCORD_TOKEN manquant");
   process.exit(1);
 }
 
-// ================= GOOGLE AUTH =================
-
 if (!process.env.GOOGLE_CREDENTIALS) {
   console.error("❌ GOOGLE_CREDENTIALS manquant");
   process.exit(1);
 }
 
+// ================= GOOGLE AUTH =================
+
 const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
 
 const auth = new google.auth.GoogleAuth({
-  credentials: credentials,
+  credentials,
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
@@ -45,7 +45,6 @@ const sheets = google.sheets({
   version: "v4",
   auth
 });
-
 
 // ================= DISCORD CLIENT =================
 
@@ -161,12 +160,39 @@ client.on("messageCreate", async (message) => {
     return message.reply(`❌ ${prenomNom} licencié.`);
   }
 
+  // ================= ATTRIBUER VEHICULE =================
+  if (message.content.startsWith("!vehicule")) {
+
+    const lignes = message.content.split("\n").map(l => l.trim()).filter(Boolean);
+
+    if (lignes.length < 4)
+      return message.reply("Format:\n!vehicule\nNom du véhicule\nImmatriculation\nNom de la personne");
+
+    const vehicule = lignes[1];
+    const plaque = lignes[2];
+    const nom = lignes[3];
+
+    const bouton = new ButtonBuilder()
+      .setCustomId(`attribuer|${vehicule}|${plaque}|${nom}`)
+      .setLabel("Valider l'attribution")
+      .setStyle(ButtonStyle.Success);
+
+    return message.reply({
+      content: `🚗 **Demande d'attribution**
+
+Véhicule : ${vehicule}
+Immatriculation : ${plaque}
+Attribué à : ${nom}`,
+      components: [new ActionRowBuilder().addComponents(bouton)]
+    });
+  }
+
   // ================= LISTE VEHICULES =================
   if (message.content === "!listevehicules") {
 
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `${VEHICULE_SHEET}!A2:D`
+      range: `${VEHICULE_SHEET}!C2:E300`
     });
 
     const rows = res.data.values || [];
@@ -174,15 +200,20 @@ client.on("messageCreate", async (message) => {
     const attribues = [];
 
     rows.forEach((row, index) => {
-      const nom = row[0];
-      const statut = row[2];
-      const utilisateur = row[3];
+
+      const vehicule = row[0];
+      const plaque = row[1];
+      const attribueA = row[2];
       const ligne = index + 2;
 
-      if (statut === "Libre")
-        libres.push(`🚗 ${nom}`);
-      else if (statut === "Attribué")
-        attribues.push({ texte: `🔒 ${nom} → ${utilisateur}`, ligne });
+      if (attribueA === "Libre") {
+        libres.push(`🚗 ${vehicule} (${plaque})`);
+      } else if (attribueA && attribueA !== "Libre") {
+        attribues.push({
+          texte: `🔒 ${vehicule} (${plaque}) → ${attribueA}`,
+          ligne
+        });
+      }
     });
 
     let msg = "**🚗 Véhicules Libres :**\n";
@@ -193,7 +224,7 @@ client.on("messageCreate", async (message) => {
 
     const rowButtons = new ActionRowBuilder();
 
-    attribues.forEach(v => {
+    attribues.slice(0, 5).forEach(v => {
       rowButtons.addComponents(
         new ButtonBuilder()
           .setCustomId(`liberer_${v.ligne}`)
@@ -215,26 +246,84 @@ client.on("messageCreate", async (message) => {
 
 });
 
-// ================= BOUTON LIBERER =================
+// ================= INTERACTIONS =================
 
 client.on("interactionCreate", async (interaction) => {
 
   if (!interaction.isButton()) return;
 
+  // ===== ATTRIBUER =====
+  if (interaction.customId.startsWith("attribuer|")) {
+
+    const [_, vehicule, plaque, nom] = interaction.customId.split("|");
+
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${VEHICULE_SHEET}!C2:E300`
+    });
+
+    const rows = res.data.values || [];
+    let ligneTrouvee = null;
+
+    for (let i = 0; i < rows.length; i++) {
+
+      const vehiculeSheet = rows[i][0];
+      const plaqueSheet = rows[i][1];
+      const attribueA = rows[i][2];
+
+      if (
+        vehiculeSheet === vehicule &&
+        plaqueSheet === plaque &&
+        attribueA === "Libre"
+      ) {
+        ligneTrouvee = i + 2;
+        break;
+      }
+    }
+
+    if (!ligneTrouvee)
+      return interaction.reply({
+        content: "❌ Véhicule introuvable ou déjà attribué.",
+        ephemeral: true
+      });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${VEHICULE_SHEET}!E${ligneTrouvee}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[nom]]
+      }
+    });
+
+    return interaction.update({
+      content: `✅ Véhicule attribué
+
+🚗 ${vehicule}
+🪪 ${plaque}
+👤 ${nom}`,
+      components: []
+    });
+  }
+
+  // ===== LIBERER =====
   if (interaction.customId.startsWith("liberer_")) {
 
     const ligne = interaction.customId.split("_")[1];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `${VEHICULE_SHEET}!C${ligne}:D${ligne}`,
+      range: `${VEHICULE_SHEET}!E${ligne}`,
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [["Libre", ""]]
+        values: [["Libre"]]
       }
     });
 
-    await interaction.reply({ content: "🚗 Véhicule libéré.", ephemeral: true });
+    return interaction.reply({
+      content: "🚗 Véhicule libéré.",
+      ephemeral: true
+    });
   }
 });
 
@@ -249,9 +338,8 @@ async function envoyerBilan(channel) {
 
   const values = res.data.values;
 
-  if (!values) {
+  if (!values)
     return channel.send("❌ Impossible de récupérer le bilan.");
-  }
 
   const totalCA = values[0]?.[0] || "0";
   const totalDepense = values[0]?.[4] || "0";
