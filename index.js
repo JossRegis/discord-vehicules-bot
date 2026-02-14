@@ -1,208 +1,221 @@
-const {
-  Client,
-  GatewayIntentBits,
-  Partials,
-  ButtonBuilder,
-  ActionRowBuilder,
-  ButtonStyle,
-  EmbedBuilder
-} = require("discord.js");
-
-const cron = require("node-cron");
+require("dotenv").config();
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const { google } = require("googleapis");
-
-const vehiculePages = new Map();
-
-// =====================================================
-// 🔧 CONFIG
-// =====================================================
-
-const SHEET_ID = process.env.SHEET_ID;
-const BILAN_SHEET_NAME = "Récapitulatif Hebdo";
-const VEHICULE_SHEET_NAME = "Véhicules";
-
-// =====================================================
-// 🤖 CLIENT
-// =====================================================
+const cron = require("node-cron");
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
-  ],
-  partials: [Partials.Channel]
+  ]
 });
 
-// =====================================================
-// 📊 GOOGLE AUTH
-// =====================================================
+// ================= CONFIG =================
+
+const SHEET_ID = process.env.SHEET_ID;
+const TOKEN = process.env.DISCORD_TOKEN;
+const BILAN_CHANNEL_NAME = "bilan-semaine";
+
+const RH_SHEET_NAME = "Comptabilité Général";
+const VEHICULE_SHEET = "Véhicules";
+const BILAN_SHEET = "Récapitulatif Hebdo";
+
+const ROLES_CONFIG = {
+  "Pizzaiolo Apprenti": { start: 43, end: 76 },
+  "Pizzaiolo Confirmé": { start: 34, end: 42 },
+  "Pizzaiolo Vétéran": { start: 26, end: 33 },
+  "Vendeur": { start: 17, end: 24 }
+};
+
+// ================= GOOGLE AUTH =================
 
 const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
+  credentials: {
+    client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n")
+  },
   scopes: ["https://www.googleapis.com/auth/spreadsheets"]
 });
 
 const sheets = google.sheets({ version: "v4", auth });
 
-// =====================================================
-// 📅 READY + BILAN AUTO
-// =====================================================
+// ================= READY =================
 
-client.once("ready", async () => {
-  console.log(`🤖 Connecté : ${client.user.tag}`);
-
-  cron.schedule("55 23 * * 0", async () => {
-    try {
-      const res = await sheets.spreadsheets.values.batchGet({
-        spreadsheetId: SHEET_ID,
-        ranges: [
-          `${BILAN_SHEET_NAME}!F32`,
-          `${BILAN_SHEET_NAME}!J32`,
-          `${BILAN_SHEET_NAME}!I39`,
-          `${BILAN_SHEET_NAME}!I40`,
-          `${BILAN_SHEET_NAME}!I41`
-        ]
-      });
-
-      const v = res.data.valueRanges;
-
-      const channel = client.channels.cache.find(
-        ch => ch.name === "bilan-semaine"
-      );
-
-      if (!channel) return;
-
-      await channel.send(`📊 **BILAN HEBDOMADAIRE**
-
-🟢 CA : ${v[0].values?.[0]?.[0] || 0}
-🔴 Dépenses : ${v[1].values?.[0]?.[0] || 0}
-💰 Avant taxe : ${v[2].values?.[0]?.[0] || 0}
-🏛 Taxe : ${v[3].values?.[0]?.[0] || 0}
-🏆 Net : ${v[4].values?.[0]?.[0] || 0}`);
-
-    } catch (err) {
-      console.error("Erreur bilan auto :", err);
-    }
-  }, { timezone: "Europe/Paris" });
+client.once("ready", () => {
+  console.log(`Connecté en tant que ${client.user.tag}`);
 });
 
-// =====================================================
-// 📋 MESSAGE CREATE (COMMANDES)
-// =====================================================
+// ================= MESSAGE =================
 
 client.on("messageCreate", async (message) => {
+
   if (message.author.bot) return;
 
   // ==========================
-  // 📊 TEST BILAN
+  // 👥 RECRUTER
   // ==========================
-  if (message.content === "!testbilan") {
-
-    const res = await sheets.spreadsheets.values.batchGet({
-      spreadsheetId: SHEET_ID,
-      ranges: [
-        `${BILAN_SHEET_NAME}!F32`,
-        `${BILAN_SHEET_NAME}!J32`,
-        `${BILAN_SHEET_NAME}!I39`,
-        `${BILAN_SHEET_NAME}!I40`,
-        `${BILAN_SHEET_NAME}!I41`
-      ]
-    });
-
-    const v = res.data.valueRanges;
-
-    return message.reply(`📊 **BILAN HEBDOMADAIRE**
-
-🟢 CA : ${v[0].values?.[0]?.[0] || 0}
-🔴 Dépenses : ${v[1].values?.[0]?.[0] || 0}
-💰 Avant taxe : ${v[2].values?.[0]?.[0] || 0}
-🏛 Taxe : ${v[3].values?.[0]?.[0] || 0}
-🏆 Net : ${v[4].values?.[0]?.[0] || 0}`);
-  }
-
-  // ==========================
-  // 🚗 ATTRIBUER VEHICULE
-  // ==========================
-  if (message.content.toLowerCase().startsWith("!vehicule")) {
+  if (message.content.startsWith("!recruter")) {
 
     const lignes = message.content.split("\n").map(l => l.trim()).filter(Boolean);
-
     if (lignes.length < 4)
-      return message.reply("Format:\n!vehicule\nNomVehicule\nPlaque\nPseudo");
+      return message.reply("Format:\n!recruter\nPseudoDiscord\nPrénom Nom\nGrade");
 
-    const vehicule = lignes[1];
-    const plaque = lignes[2];
-    const pseudo = lignes[3];
+    const pseudo = lignes[1];
+    const prenomNom = lignes[2];
+    const grade = lignes[3];
+
+    if (!ROLES_CONFIG[grade])
+      return message.reply("❌ Grade invalide.");
+
+    const plage = ROLES_CONFIG[grade];
+
+    const check = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${RH_SHEET_NAME}!E:E`
+    });
+
+    if (check.data.values?.flat().includes(prenomNom))
+      return message.reply("❌ Cette personne est déjà enregistrée.");
 
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `${VEHICULE_SHEET_NAME}!C2:E200`
+      range: `${RH_SHEET_NAME}!B${plage.start}:E${plage.end}`
+    });
+
+    const rows = res.data.values || [];
+    let ligneLibre = null;
+
+    for (let i = 0; i <= (plage.end - plage.start); i++) {
+      const row = rows[i] || [];
+      const celluleNom = row[3];
+      if (!celluleNom || celluleNom === "") {
+        ligneLibre = plage.start + i;
+        break;
+      }
+    }
+
+    if (!ligneLibre)
+      return message.reply("❌ Aucune place disponible.");
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${RH_SHEET_NAME}!B${ligneLibre}:E${ligneLibre}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[pseudo, "", "", prenomNom]]
+      }
+    });
+
+    return message.reply(`✅ ${prenomNom} recruté en ${grade}`);
+  }
+
+  // ==========================
+  // ❌ LICENCIER
+  // ==========================
+  if (message.content.startsWith("!licencier")) {
+
+    const lignes = message.content.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lignes.length < 2)
+      return message.reply("Format:\n!licencier\nPrénom Nom");
+
+    const prenomNom = lignes[1];
+
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${RH_SHEET_NAME}!E:E`
     });
 
     const rows = res.data.values || [];
     let ligneTrouvee = null;
 
     for (let i = 0; i < rows.length; i++) {
-      if (
-        rows[i]?.[0]?.toLowerCase() === vehicule.toLowerCase() &&
-        rows[i]?.[1]?.toLowerCase() === plaque.toLowerCase() &&
-        rows[i]?.[2]?.toLowerCase() === "libre"
-      ) {
-        ligneTrouvee = i + 2;
+      if (rows[i]?.[0] === prenomNom) {
+        ligneTrouvee = i + 1;
         break;
       }
     }
 
     if (!ligneTrouvee)
-      return message.reply("❌ Véhicule introuvable ou déjà attribué.");
+      return message.reply("❌ Employé introuvable.");
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `${VEHICULE_SHEET_NAME}!E${ligneTrouvee}`,
+      range: `${RH_SHEET_NAME}!B${ligneTrouvee}:E${ligneTrouvee}`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[pseudo]] }
+      requestBody: {
+        values: [["", "", "", ""]]
+      }
     });
 
-    const bouton = new ButtonBuilder()
-      .setCustomId(`liberer_${ligneTrouvee}`)
-      .setLabel("🔓 Libérer")
-      .setStyle(ButtonStyle.Danger);
-
-    return message.reply({
-      content: `🚗 Véhicule attribué à ${pseudo}`,
-      components: [new ActionRowBuilder().addComponents(bouton)]
-    });
+    return message.reply(`❌ ${prenomNom} licencié.`);
   }
 
   // ==========================
-  // 📋 LISTE LIBRES SIMPLE
+  // 🚗 LISTE VEHICULES
   // ==========================
-  if (message.content === "!vehicules") {
+  if (message.content === "!listevehicules") {
 
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: `${VEHICULE_SHEET_NAME}!C2:E200`
+      range: `${VEHICULE_SHEET}!A2:D`
     });
 
     const rows = res.data.values || [];
-    const libres = rows.filter(r => r[2]?.toLowerCase() === "libre");
 
-    if (!libres.length)
-      return message.reply("❌ Aucun véhicule libre.");
+    const libres = [];
+    const attribues = [];
 
-    return message.reply(
-      "📋 **Véhicules libres :**\n\n" +
-      libres.map(r => `🚗 ${r[0]} — ${r[1]}`).join("\n")
-    );
+    rows.forEach((row, index) => {
+      const nom = row[0];
+      const statut = row[2];
+      const utilisateur = row[3];
+      const ligne = index + 2;
+
+      if (statut === "Libre")
+        libres.push(`🚗 ${nom}`);
+      else
+        attribues.push({ texte: `🔒 ${nom} → ${utilisateur}`, ligne });
+    });
+
+    let msg = "**🚗 Véhicules Libres :**\n";
+    msg += libres.length ? libres.join("\n") : "Aucun";
+
+    msg += "\n\n**🔒 Véhicules Attribués :**\n";
+    msg += attribues.length ? attribues.map(v => v.texte).join("\n") : "Aucun";
+
+    const rowButtons = new ActionRowBuilder();
+
+    attribues.forEach(v => {
+      rowButtons.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`liberer_${v.ligne}`)
+          .setLabel(`Libérer ${v.ligne}`)
+          .setStyle(ButtonStyle.Danger)
+      );
+    });
+
+    await message.channel.send({
+      content: msg,
+      components: attribues.length ? [rowButtons] : []
+    });
   }
+
+  // ==========================
+  // 📊 TEST BILAN
+  // ==========================
+  if (message.content === "!testbilan") {
+    await envoyerBilan(message.channel);
+  }
+
 });
 
-// =====================================================
-// 🔘 INTERACTION (LIBERER)
-// =====================================================
+// ==========================
+/* 🎯 BOUTON LIBERER */
+// ==========================
 
 client.on("interactionCreate", async (interaction) => {
+
   if (!interaction.isButton()) return;
 
   if (interaction.customId.startsWith("liberer_")) {
@@ -211,20 +224,67 @@ client.on("interactionCreate", async (interaction) => {
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
-      range: `${VEHICULE_SHEET_NAME}!E${ligne}`,
+      range: `${VEHICULE_SHEET}!C${ligne}:D${ligne}`,
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: [["Libre"]] }
+      requestBody: {
+        values: [["Libre", ""]]
+      }
     });
 
-    return interaction.update({
-      content: "🔓 Véhicule libéré.",
-      components: []
-    });
+    await interaction.reply({ content: "🚗 Véhicule libéré.", ephemeral: true });
   }
 });
 
-// =====================================================
-// 🚀 LOGIN
-// =====================================================
+// ==========================
+// 📊 FONCTION BILAN
+// ==========================
 
-client.login(process.env.DISCORD_TOKEN);
+async function envoyerBilan(channel) {
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${BILAN_SHEET}!F32:J41`
+  });
+
+  const values = res.data.values;
+
+  const totalCA = values[0][0];
+  const totalDepense = values[0][4];
+  const benefAvant = values[7][3];
+  const taxe = values[8][3];
+  const benefNet = values[9][3];
+
+  const message = `
+📊 **Bilan Hebdomadaire**
+
+💰 Total CA : ${totalCA}
+💸 Total Dépenses : ${totalDepense}
+
+📈 Bénéfice avant taxe : ${benefAvant}
+🏛 Taxe (30%) : ${taxe}
+💎 Bénéfice Net : ${benefNet}
+`;
+
+  channel.send(message);
+}
+
+// ==========================
+// ⏰ CRON DIMANCHE 23H55
+// ==========================
+
+cron.schedule("55 23 * * 0", async () => {
+
+  const guilds = client.guilds.cache;
+
+  guilds.forEach(async guild => {
+
+    const channel = guild.channels.cache.find(c => c.name === BILAN_CHANNEL_NAME);
+
+    if (channel) {
+      await envoyerBilan(channel);
+    }
+  });
+
+});
+
+client.login(TOKEN);
