@@ -169,10 +169,10 @@ client.on("messageCreate", async (message) => {
   // ==========================
   // 📌 RECRUTEMENT
   // ==========================
-  if (message.content.startsWith("!recrutement")) {
+  if (message.content.startsWith("!recruter")) {
     const lignes = message.content.split("\n");
     if (lignes.length < 3)
-      return message.reply("Format:\n!recrutement\nNom\nRôle exact");
+      return message.reply("Format:\n!recruter\nNom\nRôle exact");
 
     const nom = lignes[1].trim();
     const role = lignes[2].trim();
