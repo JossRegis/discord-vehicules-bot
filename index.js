@@ -9,6 +9,7 @@ const {
 
 const cron = require("node-cron");
 const { google } = require("googleapis");
+const vehiculePages = new Map();
 
 // =====================================================
 // 🔧 CONFIGURATION
@@ -369,6 +370,124 @@ client.on("interactionCreate", async (interaction) => {
       components: []
     });
   }
+  client.on("interactionCreate", async (interaction) => {
+
+  if (!interaction.isButton()) return;
+
+  const data = vehiculePages.get(interaction.user.id);
+  if (!data) return;
+
+  // 🔓 LIBERATION
+  if (interaction.customId.startsWith("liberer_")) {
+
+    const ligne = interaction.customId.split("_")[1];
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `Véhicules!E${ligne}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [["Libre"]] }
+    });
+
+    // Recharge les données après modification
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `Véhicules!C2:E300`
+    });
+
+    const rows = res.data.values || [];
+
+    const libres = [];
+    const attribues = [];
+
+    rows.forEach((row, index) => {
+      const vehicule = row[0];
+      const plaque = row[1];
+      const statut = row[2] || "Libre";
+
+      if (!vehicule) return;
+
+      const newData = {
+        ligne: index + 2,
+        vehicule,
+        plaque,
+        statut
+      };
+
+      if (statut.toLowerCase() === "libre") {
+        libres.push(newData);
+      } else {
+        attribues.push(newData);
+      }
+    });
+
+    data.libres = libres;
+    data.attribues = attribues;
+
+    return envoyerPageVehicules(interaction, interaction.user.id, true);
+  }
+
+  // Navigation
+  if (interaction.customId === "prev_page") data.page--;
+  if (interaction.customId === "next_page") data.page++;
+  if (interaction.customId === "switch_type") {
+    data.type = data.type === "libres" ? "attribues" : "libres";
+    data.page = 0;
+  }
+
+  vehiculePages.set(interaction.user.id, data);
+
+  return envoyerPageVehicules(interaction, interaction.user.id, true);
+});
+
+  client.on("messageCreate", async (message) => {
+
+  if (message.author.bot) return;
+
+  // 🔹 COMMANDE LISTE VEHICULES
+  if (message.content.toLowerCase() === "!listevehicules") {
+
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `Véhicules!C2:E300`
+    });
+
+    const rows = res.data.values || [];
+
+    const libres = [];
+    const attribues = [];
+
+    rows.forEach((row, index) => {
+      const vehicule = row[0];
+      const plaque = row[1];
+      const statut = row[2] || "Libre";
+
+      if (!vehicule) return;
+
+      const data = {
+        ligne: index + 2,
+        vehicule,
+        plaque,
+        statut
+      };
+
+      if (statut.toLowerCase() === "libre") {
+        libres.push(data);
+      } else {
+        attribues.push(data);
+      }
+    });
+
+    vehiculePages.set(message.author.id, {
+      libres,
+      attribues,
+      page: 0,
+      type: "libres"
+    });
+
+    return envoyerPageVehicules(message, message.author.id);
+  }
+
 });
 
 // =====================================================
