@@ -408,7 +408,7 @@ async function envoyerBilan(channel) {
 
 // ================= CRON DIMANCHE 23H55 =================
 
-cron.schedule("55 23 * * 0", async () => {
+cron.schedule("55 22 * * 0", async () => {
 
   client.guilds.cache.forEach(async guild => {
 
